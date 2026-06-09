@@ -1,0 +1,4 @@
+kind: agent
+name: data-analyst
+skills:
+  - data-analyst-skill

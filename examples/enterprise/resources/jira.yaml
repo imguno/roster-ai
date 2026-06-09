@@ -1,0 +1,10 @@
+kind: resource
+name: jira
+type: api
+actions:
+  read:
+    description: "Read tickets and boards"
+  write:
+    description: "Create and update tickets"
+  comment:
+    description: "Add comments to tickets"

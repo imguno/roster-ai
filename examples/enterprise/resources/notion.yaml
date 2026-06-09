@@ -1,0 +1,14 @@
+kind: resource
+name: notion
+type: api
+actions:
+  read:
+    description: "Read pages and databases"
+  write:
+    description: "Create and update pages"
+  search:
+    description: "Search across workspace"
+watch:
+  - product-strategy
+  - design-team
+  - marketing-team

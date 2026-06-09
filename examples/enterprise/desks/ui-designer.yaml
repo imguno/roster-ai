@@ -1,0 +1,9 @@
+kind: desk
+name: ui-designer
+executor:
+  type: api
+  sdk: anthropic
+  params:
+    model: claude-sonnet-4-6
+  env:
+    ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"

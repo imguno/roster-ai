@@ -1,0 +1,4 @@
+kind: agent
+name: qa-engineer
+skills:
+  - qa-engineer-skill

@@ -1,0 +1,4 @@
+.roster/
+*.md
+Dockerfile
+.dockerignore

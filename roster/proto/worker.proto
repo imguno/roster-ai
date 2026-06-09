@@ -1,0 +1,42 @@
+syntax = "proto3";
+
+package roster.worker.v1;
+
+option go_package = "github.com/roster-io/roster/proto";
+
+// Worker is the gRPC service exposed by a remote Roster worker.
+// The hub calls this to dispatch tasks to workers running on separate machines.
+service Worker {
+  rpc Execute(ExecuteRequest) returns (ExecuteResponse);
+}
+
+message ExecuteRequest {
+  string agent_id      = 1;
+  string desk_id       = 2;
+  string executor_type = 3;                    // api | exec | docker
+  string prompt        = 4;                    // merged skill prompts + input context
+  map<string, string> options = 5;             // executor-specific params (model, command, image…)
+  map<string, string> env     = 6;             // environment variables
+  bytes  input_payload = 7;                    // serialised input Artifact payload (optional)
+
+  // Session context
+  repeated SessionEntry session       = 8;     // desk's persistent conversation history
+  repeated GroupMessage group_history = 9;     // active group's shared messages
+}
+
+message ExecuteResponse {
+  string schema  = 1;
+  bytes  payload = 2;
+  string error   = 3;  // non-empty = execution failed
+}
+
+message SessionEntry {
+  string role    = 1;  // "user" | "assistant" | "system"
+  string content = 2;
+}
+
+message GroupMessage {
+  string desk_id = 1;
+  string role    = 2;
+  string content = 3;
+}

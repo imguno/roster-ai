@@ -1,0 +1,14 @@
+kind: group
+name: ml-team
+lead:
+  desk: ml-engineer
+  position: last
+desks:
+  - data-scientist
+resources:
+  - database
+  - github
+subscribe:
+  - data.insight
+emit:
+  - ml.model.ready

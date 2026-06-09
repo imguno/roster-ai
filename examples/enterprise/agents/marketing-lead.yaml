@@ -1,0 +1,4 @@
+kind: agent
+name: marketing-lead
+skills:
+  - marketing-lead-skill

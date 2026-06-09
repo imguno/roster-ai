@@ -1,0 +1,16 @@
+kind: group
+name: product-strategy
+lead:
+  desk: product-manager
+  position: last
+desks:
+  - product-analyst
+resources:
+  - jira
+  - notion
+subscribe:
+  - feature.requested
+  - data.insight
+  - customer.feedback
+emit:
+  - spec.approved

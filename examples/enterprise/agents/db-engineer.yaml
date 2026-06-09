@@ -1,0 +1,4 @@
+kind: agent
+name: db-engineer
+skills:
+  - db-engineer-skill

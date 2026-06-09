@@ -1,0 +1,4 @@
+kind: agent
+name: security-analyst
+skills:
+  - security-analyst-skill

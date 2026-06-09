@@ -1,0 +1,8 @@
+kind: resource
+name: datadog
+type: api
+actions:
+  query:
+    description: "Query metrics and logs"
+  alert:
+    description: "Manage alerts and monitors"

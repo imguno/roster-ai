@@ -1,0 +1,4 @@
+kind: agent
+name: bi-engineer
+skills:
+  - bi-engineer-skill

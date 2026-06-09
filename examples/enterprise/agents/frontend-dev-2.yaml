@@ -1,0 +1,4 @@
+kind: agent
+name: frontend-dev-2
+skills:
+  - frontend-dev-2-skill

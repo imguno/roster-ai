@@ -1,0 +1,4 @@
+kind: agent
+name: ui-designer
+skills:
+  - ui-designer-skill

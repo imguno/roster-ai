@@ -1,0 +1,15 @@
+kind: group
+name: analytics-team
+lead:
+  desk: data-analyst
+  position: last
+desks:
+  - bi-engineer
+resources:
+  - database
+  - datadog
+subscribe:
+  - deploy.completed
+  - customer.feedback
+emit:
+  - data.insight

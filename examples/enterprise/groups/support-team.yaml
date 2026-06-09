@@ -1,0 +1,16 @@
+kind: group
+name: support-team
+lead:
+  desk: support-lead
+  position: last
+desks:
+  - support-agent
+resources:
+  - jira
+  - slack
+subscribe:
+  - release.published
+  - incident.detected
+emit:
+  - customer.feedback
+  - incident.resolved

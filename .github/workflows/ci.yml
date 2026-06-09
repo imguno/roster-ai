@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: roster
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: roster/go.mod
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build Dashboard
+        working-directory: roster/internal/web/dashboard
+        run: npm ci && npm run build
+
+      - name: Build
+        run: go build ./cmd/roster
+
+      - name: Test
+        run: go test ./...
+
+      - name: Vet
+        run: go vet ./...

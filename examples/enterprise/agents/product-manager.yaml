@@ -1,0 +1,4 @@
+kind: agent
+name: product-manager
+skills:
+  - product-manager-skill

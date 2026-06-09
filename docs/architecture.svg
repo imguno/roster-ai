@@ -1,0 +1,140 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 700" font-family="system-ui, -apple-system, sans-serif">
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6" fill="#6366f1"/>
+    </marker>
+    <marker id="arrow-gray" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6" fill="#94a3b8"/>
+    </marker>
+    <marker id="arrow-green" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6" fill="#22c55e"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1100" height="700" rx="12" fill="#0f172a"/>
+
+  <!-- Title -->
+  <text x="550" y="40" text-anchor="middle" fill="#f8fafc" font-size="20" font-weight="600">Roster Architecture</text>
+
+  <!-- Legend -->
+  <rect x="80" y="62" width="10" height="10" rx="2" fill="#6366f1"/>
+  <text x="98" y="72" fill="#94a3b8" font-size="11">Event flow</text>
+  <rect x="200" y="62" width="10" height="10" rx="2" fill="#22c55e"/>
+  <text x="218" y="72" fill="#94a3b8" font-size="11">Lead coordination</text>
+  <rect x="360" y="62" width="10" height="10" rx="2" fill="#f59e0b"/>
+  <text x="378" y="72" fill="#94a3b8" font-size="11">Human-in-the-loop</text>
+
+  <!-- ==================== TOP ROW: Event Sources ==================== -->
+
+  <!-- CLI / Webhook -->
+  <rect x="60" y="110" width="150" height="55" rx="8" fill="#1e293b" stroke="#475569" stroke-width="1"/>
+  <text x="135" y="133" text-anchor="middle" fill="#94a3b8" font-size="11">CLI / Webhook</text>
+  <text x="135" y="152" text-anchor="middle" fill="#e2e8f0" font-size="13" font-weight="500">roster emit</text>
+
+  <!-- Trigger -->
+  <rect x="260" y="110" width="150" height="55" rx="8" fill="#1e293b" stroke="#475569" stroke-width="1"/>
+  <text x="335" y="133" text-anchor="middle" fill="#94a3b8" font-size="11">Trigger</text>
+  <text x="335" y="152" text-anchor="middle" fill="#e2e8f0" font-size="13" font-weight="500">cron / poll / exec</text>
+
+  <!-- Organization -->
+  <rect x="460" y="100" width="220" height="65" rx="10" fill="#1e293b" stroke="#f59e0b" stroke-width="1.5"/>
+  <text x="570" y="127" text-anchor="middle" fill="#fbbf24" font-size="13" font-weight="600">ORGANIZATION</text>
+  <text x="570" y="148" text-anchor="middle" fill="#94a3b8" font-size="11">routing rules</text>
+
+  <!-- Dashboard -->
+  <rect x="730" y="110" width="150" height="55" rx="8" fill="#1e293b" stroke="#475569" stroke-width="1"/>
+  <text x="805" y="133" text-anchor="middle" fill="#94a3b8" font-size="11">Dashboard</text>
+  <text x="805" y="152" text-anchor="middle" fill="#e2e8f0" font-size="13" font-weight="500">:8080 Web UI</text>
+
+  <!-- Resource -->
+  <rect x="930" y="110" width="130" height="55" rx="8" fill="#1e293b" stroke="#475569" stroke-width="1"/>
+  <text x="995" y="133" text-anchor="middle" fill="#94a3b8" font-size="11">Resource</text>
+  <text x="995" y="152" text-anchor="middle" fill="#e2e8f0" font-size="13" font-weight="500">GitHub, Files</text>
+
+  <!-- Arrows: top row → event bus -->
+  <line x1="135" y1="165" x2="135" y2="220" stroke="#6366f1" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="335" y1="165" x2="335" y2="220" stroke="#6366f1" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="570" y1="165" x2="570" y2="220" stroke="#6366f1" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow)"/>
+  <text x="600" y="200" fill="#94a3b8" font-size="9" font-style="italic">routes events</text>
+  <line x1="805" y1="165" x2="805" y2="220" stroke="#94a3b8" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow-gray)"/>
+  <line x1="995" y1="165" x2="995" y2="220" stroke="#6366f1" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- ==================== EVENT BUS ==================== -->
+
+  <rect x="50" y="230" width="1000" height="50" rx="25" fill="#1e1b4b" stroke="#6366f1" stroke-width="1.5" opacity="0.9"/>
+  <text x="550" y="260" text-anchor="middle" fill="#a5b4fc" font-size="16" font-weight="600">Event Bus</text>
+  <circle cx="100" cy="255" r="4" fill="#818cf8" opacity="0.6"/>
+  <circle cx="250" cy="255" r="4" fill="#818cf8" opacity="0.4"/>
+  <circle cx="430" cy="255" r="4" fill="#818cf8" opacity="0.8"/>
+  <circle cx="680" cy="255" r="4" fill="#818cf8" opacity="0.5"/>
+  <circle cx="870" cy="255" r="4" fill="#818cf8" opacity="0.7"/>
+  <circle cx="1000" cy="255" r="4" fill="#818cf8" opacity="0.3"/>
+
+  <!-- Arrows: event bus → bottom row -->
+  <line x1="250" y1="282" x2="250" y2="330" stroke="#6366f1" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="650" y1="282" x2="650" y2="330" stroke="#6366f1" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="940" y1="282" x2="940" y2="330" stroke="#6366f1" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- ==================== BOTTOM ROW: Groups & Desks ==================== -->
+
+  <!-- Group A: dev-team -->
+  <rect x="60" y="340" width="430" height="330" rx="14" fill="#1e293b" stroke="#3b82f6" stroke-width="1.5" stroke-dasharray="6,3"/>
+  <text x="275" y="370" text-anchor="middle" fill="#60a5fa" font-size="15" font-weight="600">Group: dev-team</text>
+  <text x="275" y="390" text-anchor="middle" fill="#64748b" font-size="11">shared session per run</text>
+
+  <!-- Lead desk -->
+  <rect x="90" y="415" width="170" height="110" rx="8" fill="#0f172a" stroke="#22c55e" stroke-width="1.5"/>
+  <text x="175" y="440" text-anchor="middle" fill="#4ade80" font-size="12" font-weight="600">LEAD</text>
+  <rect x="110" y="455" width="130" height="26" rx="5" fill="#14532d"/>
+  <text x="175" y="473" text-anchor="middle" fill="#86efac" font-size="12">architect</text>
+  <rect x="110" y="490" width="130" height="22" rx="5" fill="#1e293b"/>
+  <text x="175" y="505" text-anchor="middle" fill="#94a3b8" font-size="10">Claude Sonnet</text>
+
+  <!-- Member desk A -->
+  <rect x="295" y="415" width="170" height="110" rx="8" fill="#0f172a" stroke="#475569" stroke-width="1"/>
+  <text x="380" y="440" text-anchor="middle" fill="#94a3b8" font-size="11">MEMBERS</text>
+  <rect x="315" y="455" width="130" height="26" rx="5" fill="#1e293b"/>
+  <text x="380" y="473" text-anchor="middle" fill="#e2e8f0" font-size="12">dev-a, dev-b</text>
+  <rect x="315" y="490" width="130" height="22" rx="5" fill="#1e293b"/>
+  <text x="380" y="505" text-anchor="middle" fill="#94a3b8" font-size="10">Claude Haiku</text>
+
+  <!-- Lead → Members arrow -->
+  <line x1="260" y1="470" x2="290" y2="470" stroke="#22c55e" stroke-width="1.5" marker-end="url(#arrow-green)"/>
+
+  <!-- Flow description -->
+  <rect x="120" y="555" width="310" height="40" rx="8" fill="#0f172a" stroke="#22c55e" stroke-width="1" stroke-dasharray="4,2"/>
+  <text x="275" y="572" text-anchor="middle" fill="#4ade80" font-size="11">1. lead plans</text>
+  <text x="275" y="588" text-anchor="middle" fill="#4ade80" font-size="11">2. members work  3. lead synthesizes</text>
+
+  <!-- Synthesize arrow back -->
+  <path d="M 380,525 L 380,545 L 175,545 L 175,525" fill="none" stroke="#22c55e" stroke-width="1" marker-end="url(#arrow-green)" stroke-dasharray="4,2"/>
+
+  <!-- Group B: review -->
+  <rect x="530" y="340" width="230" height="235" rx="14" fill="#1e293b" stroke="#3b82f6" stroke-width="1.5" stroke-dasharray="6,3"/>
+  <text x="645" y="370" text-anchor="middle" fill="#60a5fa" font-size="15" font-weight="600">Group: review</text>
+  <text x="645" y="390" text-anchor="middle" fill="#64748b" font-size="11">single desk group</text>
+
+  <rect x="565" y="415" width="160" height="110" rx="8" fill="#0f172a" stroke="#475569" stroke-width="1"/>
+  <text x="645" y="440" text-anchor="middle" fill="#94a3b8" font-size="11">DESK</text>
+  <rect x="585" y="455" width="120" height="26" rx="5" fill="#1e293b"/>
+  <text x="645" y="473" text-anchor="middle" fill="#e2e8f0" font-size="12">reviewer</text>
+  <rect x="585" y="490" width="120" height="22" rx="5" fill="#1e293b"/>
+  <text x="645" y="505" text-anchor="middle" fill="#94a3b8" font-size="10">Claude Sonnet</text>
+
+  <!-- Human Gate -->
+  <rect x="800" y="340" width="250" height="235" rx="14" fill="#1e293b" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="6,3"/>
+  <text x="925" y="370" text-anchor="middle" fill="#fbbf24" font-size="15" font-weight="600">Human Gate</text>
+  <text x="925" y="390" text-anchor="middle" fill="#64748b" font-size="11">approval required</text>
+
+  <rect x="840" y="415" width="170" height="110" rx="8" fill="#0f172a" stroke="#f59e0b" stroke-width="1"/>
+  <text x="925" y="440" text-anchor="middle" fill="#94a3b8" font-size="11">DESK</text>
+  <rect x="860" y="455" width="130" height="26" rx="5" fill="#422006"/>
+  <text x="925" y="473" text-anchor="middle" fill="#fbbf24" font-size="12">approval</text>
+  <rect x="860" y="490" width="130" height="22" rx="5" fill="#1e293b"/>
+  <text x="925" y="505" text-anchor="middle" fill="#94a3b8" font-size="10">type: human</text>
+
+  <!-- Event labels between groups -->
+  <text x="503" y="320" text-anchor="middle" fill="#818cf8" font-size="10" font-style="italic">code.ready</text>
+  <text x="770" y="320" text-anchor="middle" fill="#818cf8" font-size="10" font-style="italic">review.done</text>
+</svg>

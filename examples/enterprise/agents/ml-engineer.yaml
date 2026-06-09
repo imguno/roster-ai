@@ -1,0 +1,4 @@
+kind: agent
+name: ml-engineer
+skills:
+  - ml-engineer-skill

@@ -1,0 +1,4 @@
+kind: agent
+name: qa-lead
+skills:
+  - qa-lead-skill

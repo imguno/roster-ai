@@ -1,0 +1,4 @@
+kind: agent
+name: support-lead
+skills:
+  - support-lead-skill

@@ -1,0 +1,13 @@
+kind: group
+name: design-team
+lead:
+  desk: ux-designer
+  position: last
+desks:
+  - ui-designer
+resources:
+  - notion
+subscribe:
+  - spec.approved
+emit:
+  - design.completed

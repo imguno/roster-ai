@@ -1,0 +1,4 @@
+kind: agent
+name: backend-dev-2
+skills:
+  - backend-dev-2-skill

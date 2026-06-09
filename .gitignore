@@ -1,0 +1,32 @@
+# Binaries
+roster/roster
+roster/roster.exe
+roster/dist/
+
+# Go
+roster/vendor/
+
+# Dashboard build
+roster/internal/web/dashboard/node_modules/
+
+# Roster runtime data
+**/.roster/
+
+# Secrets
+.env
+*.pem
+*.key
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*~
+
+# Claude Code
+.claude/
+.ai/

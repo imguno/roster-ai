@@ -1,0 +1,9 @@
+kind: organization
+name: taskflow
+
+groups:
+  - dev-team
+
+routing:
+  - on: task.created
+    to: dev-team

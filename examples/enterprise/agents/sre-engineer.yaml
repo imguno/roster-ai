@@ -1,0 +1,4 @@
+kind: agent
+name: sre-engineer
+skills:
+  - sre-engineer-skill

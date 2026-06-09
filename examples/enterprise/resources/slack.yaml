@@ -1,0 +1,11 @@
+kind: resource
+name: slack
+type: api
+actions:
+  send:
+    description: "Send messages to channels"
+  read:
+    description: "Read channel history"
+watch:
+  - support-team
+  - devops-team

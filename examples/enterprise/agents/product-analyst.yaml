@@ -1,0 +1,4 @@
+kind: agent
+name: product-analyst
+skills:
+  - product-analyst-skill

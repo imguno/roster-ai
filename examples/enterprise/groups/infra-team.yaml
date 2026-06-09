@@ -1,0 +1,11 @@
+kind: group
+name: infra-team
+desks:
+  - cloud-engineer
+  - network-engineer
+resources:
+  - datadog
+subscribe:
+  - deploy.ready
+emit:
+  - deploy.completed
