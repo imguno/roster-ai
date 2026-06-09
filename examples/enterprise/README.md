@@ -1,18 +1,18 @@
 # Enterprise Example — MegaCorp
 
-> **이 예시는 최종적으로 원하는 대기업 규모 조직의 모습입니다.**
-> 실제로 전부 실행하려면 29개 데스크 × API 호출 비용이 발생합니다.
-> 대시보드 시각화와 조직 구조 데모 목적으로 사용하세요.
+> **This example represents the desired end-state of a large enterprise organization.**
+> Running all 29 desks will incur API costs per call.
+> Use this primarily for dashboard visualization and org structure demos.
 
 ## Overview
 
-- **5개 사업부**: Product, Engineering, Data, Operations, Business
-- **12개 그룹**: 각 부서 내 팀 단위
-- **29개 데스크**: PM부터 고객지원까지 전 직군
-- **6개 리소스**: GitHub, Jira, Datadog, Database, Notion, Slack
-- **22개 라우팅 룰**: 부서 간 이벤트 기반 협업 흐름
+- **5 divisions**: Product, Engineering, Data, Operations, Business
+- **12 groups**: team-level units within each division
+- **29 desks**: covering every role from PM to customer support
+- **6 resources**: GitHub, Jira, Datadog, Database, Notion, Slack
+- **22 routing rules**: cross-division event-driven workflows
 
-## 조직 구조
+## Organization Structure
 
 ```
 MegaCorp
