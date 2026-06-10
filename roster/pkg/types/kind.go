@@ -10,7 +10,8 @@ const (
 	KindDesk         Kind = "desk"
 	KindGroup        Kind = "group"
 	KindSkill        Kind = "skill"
-	KindOrganization Kind = "organization"
+	KindOrg          Kind = "org"
+	KindOrganization Kind = "organization" // v1 alias, kept for backwards compatibility
 	KindResource     Kind = "resource"
 	KindPolicy       Kind = "policy"
 )

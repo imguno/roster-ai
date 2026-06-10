@@ -82,14 +82,15 @@ func (r *Registry) ruleMatchesDesk(rule types.PermissionRule, deskID string, des
 		}
 	}
 
-	// Match by group membership.
+	// Match by group membership (desks declare parent, not the other way around).
 	for _, groupID := range rule.Groups {
 		group, ok := r.groups[groupID]
 		if !ok {
 			continue
 		}
-		for _, memberID := range group.Desks {
-			if memberID == deskID {
+		// Check desks whose parent is this group.
+		for id, d := range r.desks {
+			if d.Parent == groupID && id == deskID {
 				return true
 			}
 		}

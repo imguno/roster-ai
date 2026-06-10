@@ -104,7 +104,7 @@ func (h *Hub) checkBudget(runID, deskID string, cost float64) {
 
 	// Roll up to group-level budget.
 	for gid, group := range h.groups {
-		if !deskInGroup(group, deskID) {
+		if !h.deskInGroup(gid, deskID) {
 			continue
 		}
 		gScope := "group:" + gid
@@ -204,19 +204,6 @@ func parseBudgetAmount(s string) float64 {
 	s = strings.TrimPrefix(s, "$")
 	v, _ := strconv.ParseFloat(s, 64)
 	return v
-}
-
-// deskInGroup checks if a desk is a member or lead of a group.
-func deskInGroup(g *types.Group, deskID string) bool {
-	if g.Lead != nil && g.Lead.Desk == deskID {
-		return true
-	}
-	for _, d := range g.Desks {
-		if d == deskID {
-			return true
-		}
-	}
-	return false
 }
 
 // BudgetStatus returns accumulated costs per scope for the API.

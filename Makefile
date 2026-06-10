@@ -1,8 +1,11 @@
-.PHONY: build install clean test dry-run dashboard
+.PHONY: build install clean test dry-run dashboard proto
 
 BINARY   = roster
 SRC_DIR  = roster
 OUT_DIR  = $(SRC_DIR)
+
+proto:
+	cd ../roster-proto && make go
 
 dashboard:
 	cd $(SRC_DIR)/internal/web/dashboard && npm ci && npm run build

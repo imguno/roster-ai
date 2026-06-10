@@ -31,16 +31,13 @@ func Project(p *config.Project) error {
 
 func checkDesk(d *types.Desk, p *config.Project) []string {
 	var errs []string
-	// Agent is required for API desks. Exec/docker/remote can run without an agent (pure script).
-	// Human desks never need an agent.
-	needsAgent := d.Executor.Type == types.ExecutorTypeAPI
-	if d.Agent != "" {
-		// If an agent is specified, it must exist regardless of executor type.
-		if _, ok := p.Agents[d.Agent]; !ok {
-			errs = append(errs, fmt.Sprintf("desk %q: agent %q not found", d.ID, d.Agent))
+	needsAgent := d.Executor.Type == types.ExecutorTypeAPI || d.Executor.Type == types.ExecutorTypeSDK
+	if d.Agent.IsLocal() {
+		if _, ok := p.Agents[d.Agent.ID]; !ok {
+			errs = append(errs, fmt.Sprintf("desk %q: agent %q not found", d.ID, d.Agent.ID))
 		}
 	}
-	if needsAgent && d.Agent == "" {
+	if needsAgent && !d.Agent.IsLocal() && !d.Agent.IsRemote() {
 		errs = append(errs, fmt.Sprintf("desk %q: agent is required for executor type %q", d.ID, d.Executor.Type))
 	}
 	if d.Executor.Type == "" {
@@ -54,29 +51,32 @@ func checkDesk(d *types.Desk, p *config.Project) []string {
 			errs = append(errs, fmt.Sprintf("desk %q: policy %q not found", d.ID, d.Policy))
 		}
 	}
-	// Validate concurrency mode.
+	// Validate parent reference.
+	if d.Parent != "" {
+		_, isGroup := p.Groups[d.Parent]
+		if !isGroup && (p.Organization == nil || p.Organization.ID != d.Parent) {
+			errs = append(errs, fmt.Sprintf("desk %q: parent %q not found (must be a group or org id)", d.ID, d.Parent))
+		}
+	}
 	if d.Concurrency.Mode != "" {
 		switch d.Concurrency.Mode {
 		case types.ConcurrencyQueue, types.ConcurrencySpawn, types.ConcurrencyReject:
 		default:
-			errs = append(errs, fmt.Sprintf("desk %q: invalid concurrency mode %q (must be queue, spawn, or reject)", d.ID, d.Concurrency.Mode))
+			errs = append(errs, fmt.Sprintf("desk %q: invalid concurrency mode %q", d.ID, d.Concurrency.Mode))
 		}
 	}
-	// Validate executor SDK when type is API.
 	if d.Executor.Type == types.ExecutorTypeAPI && d.Executor.SDK != "" {
 		switch d.Executor.SDK {
 		case types.SDKAnthropic, types.SDKOpenAI, types.SDKGemini:
 		default:
-			errs = append(errs, fmt.Sprintf("desk %q: invalid executor.sdk %q (must be anthropic, openai, or gemini)", d.ID, d.Executor.SDK))
+			errs = append(errs, fmt.Sprintf("desk %q: invalid executor.sdk %q", d.ID, d.Executor.SDK))
 		}
 	}
-	// Validate trigger types.
 	for i, trig := range d.Triggers {
 		if trig.Type != "exec" && trig.Type != "poll" {
-			errs = append(errs, fmt.Sprintf("desk %q: trigger[%d] invalid type %q (must be exec or poll)", d.ID, i, trig.Type))
+			errs = append(errs, fmt.Sprintf("desk %q: trigger[%d] invalid type %q", d.ID, i, trig.Type))
 		}
 	}
-	// Validate desk resources exist.
 	for _, resID := range d.Resources {
 		if _, ok := p.Resources[resID]; !ok {
 			errs = append(errs, fmt.Sprintf("desk %q: resource %q not found", d.ID, resID))
@@ -87,15 +87,11 @@ func checkDesk(d *types.Desk, p *config.Project) []string {
 
 func checkGroup(g *types.Group, p *config.Project) []string {
 	var errs []string
-	for _, deskID := range g.Desks {
-		if _, ok := p.Desks[deskID]; !ok {
-			errs = append(errs, fmt.Sprintf("group %q: desk %q not found", g.ID, deskID))
-		}
-	}
-	// Validate nested group references.
-	for _, subID := range g.Groups {
-		if _, ok := p.Groups[subID]; !ok {
-			errs = append(errs, fmt.Sprintf("group %q: sub-group %q not found", g.ID, subID))
+	// Validate parent reference.
+	if g.Parent != "" {
+		_, isGroup := p.Groups[g.Parent]
+		if !isGroup && (p.Organization == nil || p.Organization.ID != g.Parent) {
+			errs = append(errs, fmt.Sprintf("group %q: parent %q not found", g.ID, g.Parent))
 		}
 	}
 	if g.Lead != nil {
@@ -113,22 +109,19 @@ func checkGroup(g *types.Group, p *config.Project) []string {
 			errs = append(errs, fmt.Sprintf("group %q: policy %q not found", g.ID, g.Policy))
 		}
 	}
-	// Validate dispatch mode.
 	if g.Dispatch != "" && g.Dispatch != "sequential" && g.Dispatch != "parallel" && g.Dispatch != "conversation" {
-		errs = append(errs, fmt.Sprintf("group %q: invalid dispatch mode %q (must be sequential, parallel, or conversation)", g.ID, g.Dispatch))
+		errs = append(errs, fmt.Sprintf("group %q: invalid dispatch mode %q", g.ID, g.Dispatch))
 	}
-	// Validate lead position.
 	if g.Lead != nil && g.Lead.Position != "" {
 		switch g.Lead.Position {
 		case "both", "first", "last":
 		default:
-			errs = append(errs, fmt.Sprintf("group %q: invalid lead position %q (must be both, first, or last)", g.ID, g.Lead.Position))
+			errs = append(errs, fmt.Sprintf("group %q: invalid lead position %q", g.ID, g.Lead.Position))
 		}
 	}
-	// Validate trigger types.
 	for i, trig := range g.Triggers {
 		if trig.Type != "exec" && trig.Type != "poll" {
-			errs = append(errs, fmt.Sprintf("group %q: trigger[%d] invalid type %q (must be exec or poll)", g.ID, i, trig.Type))
+			errs = append(errs, fmt.Sprintf("group %q: trigger[%d] invalid type %q", g.ID, i, trig.Type))
 		}
 	}
 	return errs
@@ -140,40 +133,27 @@ func checkPolicy(pol *types.Policy) []string {
 		switch pol.OnTimeout {
 		case "fail", "retry", "escalate":
 		default:
-			errs = append(errs, fmt.Sprintf("policy %q: invalid on_timeout %q (must be fail, retry, or escalate)", pol.ID, pol.OnTimeout))
+			errs = append(errs, fmt.Sprintf("policy %q: invalid on_timeout %q", pol.ID, pol.OnTimeout))
 		}
 	}
 	if pol.OnError != "" {
 		switch pol.OnError {
 		case "fail", "retry", "escalate":
 		default:
-			errs = append(errs, fmt.Sprintf("policy %q: invalid on_error %q (must be fail, retry, or escalate)", pol.ID, pol.OnError))
+			errs = append(errs, fmt.Sprintf("policy %q: invalid on_error %q", pol.ID, pol.OnError))
 		}
 	}
 	if pol.EscalateTo != "" && pol.OnError != "escalate" && pol.OnTimeout != "escalate" {
-		errs = append(errs, fmt.Sprintf("policy %q: escalate_to is set but neither on_error nor on_timeout is 'escalate'", pol.ID))
+		errs = append(errs, fmt.Sprintf("policy %q: escalate_to set but neither on_error nor on_timeout is 'escalate'", pol.ID))
 	}
 	return errs
 }
 
 func checkOrganization(org *types.Organization, p *config.Project) []string {
 	var errs []string
-	for _, groupID := range org.Groups {
-		if _, ok := p.Groups[groupID]; !ok {
-			errs = append(errs, fmt.Sprintf("organization %q: group %q not found", org.ID, groupID))
-		}
-	}
 	for _, resID := range org.Resources {
 		if _, ok := p.Resources[resID]; !ok {
-			errs = append(errs, fmt.Sprintf("organization %q: resource %q not found", org.ID, resID))
-		}
-	}
-	for i, rule := range org.Routing {
-		// Check that routing target exists as a group or desk.
-		_, isGroup := p.Groups[rule.To]
-		_, isDesk := p.Desks[rule.To]
-		if !isGroup && !isDesk {
-			errs = append(errs, fmt.Sprintf("organization %q: routing[%d] target %q not found (must be a group or desk)", org.ID, i, rule.To))
+			errs = append(errs, fmt.Sprintf("org %q: resource %q not found", org.ID, resID))
 		}
 	}
 	return errs

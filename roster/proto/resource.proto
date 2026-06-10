@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package roster.resource.v1;
+
+option go_package = "github.com/roster-io/roster/proto";
+
+// ResourceService handles SDK-backed resource actions.
+// The hub calls this when a resource has type: sdk.
+service ResourceService {
+  rpc ExecuteAction(ResourceActionRequest) returns (ResourceActionResponse);
+}
+
+message ResourceActionRequest {
+  string              resource_id = 1;
+  string              action      = 2;
+  map<string, string> params      = 3;
+}
+
+message ResourceActionResponse {
+  bytes  output = 1;
+  string error  = 2;
+}

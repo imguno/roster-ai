@@ -50,20 +50,19 @@ func waitFor(t *testing.T, timeout time.Duration, condition func() bool) {
 	t.Fatal("timed out waiting for condition")
 }
 
-func TestOrganizationRouting(t *testing.T) {
+func TestDeskSubscription(t *testing.T) {
 	d := &fakeDispatcher{}
 	h := newTestHub(t, d)
 
 	h.Load(
-		&types.Organization{
-			ID:      "test-org",
-			Routing: []types.RoutingRule{{On: "task.created", To: "reviewer"}},
-		},
+		&types.Organization{ID: "test-org"},
 		map[string]*types.Agent{"review-agent": {ID: "review-agent"}},
 		map[string]*types.Desk{
 			"reviewer": {
-				ID: "reviewer", Agent: "review-agent",
-				Executor: types.ExecutorConfig{Type: types.ExecutorTypeExec, Params: map[string]string{"command": "echo test"}},
+				ID:        "reviewer",
+				Agent:     types.AgentRef{ID: "review-agent"},
+				Subscribe: []string{"task.created"},
+				Executor:  types.ExecutorConfig{Type: types.ExecutorTypeExec, Params: map[string]string{"command": "echo test"}},
 			},
 		},
 		nil, nil, nil,
@@ -93,20 +92,17 @@ func TestGroupCoordination(t *testing.T) {
 	h := newTestHub(t, d)
 
 	h.Load(
-		&types.Organization{
-			ID:      "test-org",
-			Routing: []types.RoutingRule{{On: "work.start", To: "dev-team"}},
-		},
+		&types.Organization{ID: "test-org"},
 		map[string]*types.Agent{
 			"lead-agent":   {ID: "lead-agent"},
 			"worker-agent": {ID: "worker-agent"},
 		},
 		map[string]*types.Desk{
-			"lead":     {ID: "lead", Agent: "lead-agent", Executor: types.ExecutorConfig{Type: types.ExecutorTypeExec}},
-			"worker-a": {ID: "worker-a", Agent: "worker-agent", Executor: types.ExecutorConfig{Type: types.ExecutorTypeExec}},
+			"lead":     {ID: "lead", Parent: "dev-team", Agent: types.AgentRef{ID: "lead-agent"}, Executor: types.ExecutorConfig{Type: types.ExecutorTypeExec}},
+			"worker-a": {ID: "worker-a", Parent: "dev-team", Agent: types.AgentRef{ID: "worker-agent"}, Executor: types.ExecutorConfig{Type: types.ExecutorTypeExec}},
 		},
 		map[string]*types.Group{
-			"dev-team": {ID: "dev-team", Lead: &types.GroupLead{Desk: "lead"}, Desks: []string{"worker-a"}},
+			"dev-team": {ID: "dev-team", Subscribe: []string{"work.start"}, Lead: &types.GroupLead{Desk: "lead", Position: "both"}},
 		},
 		nil, nil,
 	)
@@ -142,20 +138,14 @@ func TestGroupEmit(t *testing.T) {
 	h := newTestHub(t, d)
 
 	h.Load(
-		&types.Organization{
-			ID: "test-org",
-			Routing: []types.RoutingRule{
-				{On: "plan.ready", To: "dev-team"},
-				{On: "dev.done", To: "reporter"},
-			},
-		},
+		&types.Organization{ID: "test-org"},
 		map[string]*types.Agent{"a": {ID: "a"}},
 		map[string]*types.Desk{
-			"worker":   {ID: "worker", Agent: "a", Executor: types.ExecutorConfig{Type: types.ExecutorTypeExec}},
-			"reporter": {ID: "reporter", Agent: "a", Executor: types.ExecutorConfig{Type: types.ExecutorTypeExec}},
+			"worker":   {ID: "worker", Parent: "dev-team", Agent: types.AgentRef{ID: "a"}, Executor: types.ExecutorConfig{Type: types.ExecutorTypeExec}},
+			"reporter": {ID: "reporter", Agent: types.AgentRef{ID: "a"}, Subscribe: []string{"dev.done"}, Executor: types.ExecutorConfig{Type: types.ExecutorTypeExec}},
 		},
 		map[string]*types.Group{
-			"dev-team": {ID: "dev-team", Desks: []string{"worker"}, Emit: []string{"dev.done"}},
+			"dev-team": {ID: "dev-team", Subscribe: []string{"plan.ready"}, Emit: []string{"dev.done"}},
 		},
 		nil, nil,
 	)
@@ -166,7 +156,7 @@ func TestGroupEmit(t *testing.T) {
 
 	h.Emit(ctx, types.Event{Type: "plan.ready", Source: "strategy"})
 
-	// worker ran (from dev-team) + reporter ran (from dev.done routing)
+	// worker ran (from dev-team) + reporter ran (from dev.done emit)
 	waitFor(t, 8*time.Second, func() bool {
 		d.mu.Lock()
 		defer d.mu.Unlock()
@@ -188,16 +178,13 @@ func TestResourceBindingInGroup(t *testing.T) {
 	h := newTestHub(t, d)
 
 	h.Load(
-		&types.Organization{
-			ID:      "test-org",
-			Routing: []types.RoutingRule{{On: "work.start", To: "dev-team"}},
-		},
+		&types.Organization{ID: "test-org"},
 		map[string]*types.Agent{"a": {ID: "a"}},
 		map[string]*types.Desk{
-			"worker": {ID: "worker", Agent: "a", Executor: types.ExecutorConfig{Type: types.ExecutorTypeExec}},
+			"worker": {ID: "worker", Parent: "dev-team", Agent: types.AgentRef{ID: "a"}, Executor: types.ExecutorConfig{Type: types.ExecutorTypeExec}},
 		},
 		map[string]*types.Group{
-			"dev-team": {ID: "dev-team", Desks: []string{"worker"}, Resources: []string{"codebase"}},
+			"dev-team": {ID: "dev-team", Subscribe: []string{"work.start"}, Resources: []string{"codebase"}},
 		},
 		map[string]*types.Resource{
 			"codebase": {
@@ -223,7 +210,6 @@ func TestResourceBindingInGroup(t *testing.T) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	task := d.tasks[0]
-	// Should have codebase + built-in roster resource.
 	hasCodebase := false
 	for _, r := range task.Resources {
 		if r.ID == "codebase" {
@@ -246,9 +232,6 @@ func TestResourceBindingInGroup(t *testing.T) {
 }
 
 func TestDetermineEventType(t *testing.T) {
-	// Payload that contains a quoted failure pattern from a prior step's explanation,
-	// followed by actual successful build/test output. The last-occurrence logic must
-	// treat this as success.
 	quotedFailureButActualSuccess := []byte(`
 --- input from previous step ---
 Build is clean. The fix was already committed — "failed" removed from failurePatterns
@@ -315,30 +298,24 @@ binary: ./bin/roster-new
 	}
 }
 
-// TestGroupCheckpointResume verifies that desks with saved checkpoints are skipped
-// when a group run is resumed with the same stableRunID.
 func TestGroupCheckpointResume(t *testing.T) {
 	d := &fakeDispatcher{}
 	h := newTestHub(t, d)
 
 	h.Load(
 		nil,
-		map[string]*types.Agent{
-			"a": {ID: "a"},
-		},
+		map[string]*types.Agent{"a": {ID: "a"}},
 		map[string]*types.Desk{
-			"desk1": {ID: "desk1", Agent: "a", Executor: types.ExecutorConfig{Type: types.ExecutorTypeExec}},
-			"desk2": {ID: "desk2", Agent: "a", Executor: types.ExecutorConfig{Type: types.ExecutorTypeExec}},
-			"desk3": {ID: "desk3", Agent: "a", Executor: types.ExecutorConfig{Type: types.ExecutorTypeExec}},
+			"desk1": {ID: "desk1", Parent: "my-group", Agent: types.AgentRef{ID: "a"}, Executor: types.ExecutorConfig{Type: types.ExecutorTypeExec}},
+			"desk2": {ID: "desk2", Parent: "my-group", Agent: types.AgentRef{ID: "a"}, Executor: types.ExecutorConfig{Type: types.ExecutorTypeExec}},
+			"desk3": {ID: "desk3", Parent: "my-group", Agent: types.AgentRef{ID: "a"}, Executor: types.ExecutorConfig{Type: types.ExecutorTypeExec}},
 		},
 		map[string]*types.Group{
-			"my-group": {ID: "my-group", Desks: []string{"desk1", "desk2", "desk3"}},
+			"my-group": {ID: "my-group"},
 		},
 		nil, nil,
 	)
 
-	// Pre-save checkpoints for desk1 and desk2 under the stable run ID.
-	// This simulates a crash after desk2 completed.
 	stableRunID := "my-group-1"
 	h.store.Run().SaveStep(stableRunID, "my-group", "desk1-round0", &types.Artifact{Payload: []byte("desk1 output")})
 	h.store.Run().SaveStep(stableRunID, "my-group", "desk2-round0", &types.Artifact{Payload: []byte("desk2 output")})
@@ -355,7 +332,6 @@ func TestGroupCheckpointResume(t *testing.T) {
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	// Only desk3 should have been dispatched; desk1 and desk2 were checkpointed.
 	if len(d.tasks) != 1 {
 		t.Fatalf("expected 1 dispatch (desk3 only), got %d: %v", len(d.tasks), func() []string {
 			ids := make([]string, len(d.tasks))
@@ -375,13 +351,10 @@ func TestEventNotRouted(t *testing.T) {
 	h := newTestHub(t, d)
 
 	h.Load(
-		&types.Organization{
-			ID:      "test-org",
-			Routing: []types.RoutingRule{{On: "task.created", To: "reviewer"}},
-		},
+		&types.Organization{ID: "test-org"},
 		map[string]*types.Agent{"a": {ID: "a"}},
 		map[string]*types.Desk{
-			"reviewer": {ID: "reviewer", Agent: "a", Executor: types.ExecutorConfig{Type: types.ExecutorTypeExec}},
+			"reviewer": {ID: "reviewer", Agent: types.AgentRef{ID: "a"}, Subscribe: []string{"task.created"}, Executor: types.ExecutorConfig{Type: types.ExecutorTypeExec}},
 		},
 		nil, nil, nil,
 	)
@@ -390,7 +363,6 @@ func TestEventNotRouted(t *testing.T) {
 	defer cancel()
 	h.Start(ctx)
 
-	// Emit an event that no one subscribes to — should not trigger any dispatch.
 	h.Emit(ctx, types.Event{Type: "unknown.event"})
 	time.Sleep(3 * time.Second)
 

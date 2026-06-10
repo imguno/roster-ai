@@ -56,7 +56,8 @@ type SessionEntry struct {
 // Message is a unit of communication in a group shared space.
 type Message struct {
 	DeskID  string `json:"desk_id"`
-	Role    string `json:"role"`
+	Role    string `json:"role"`    // "agent" | "user"
+	Type    string `json:"type"`    // "step" | "result"
 	Content string `json:"content"`
 	Payload []byte `json:"payload,omitempty"`
 }

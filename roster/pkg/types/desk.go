@@ -1,51 +1,78 @@
 package types
 
-// Desk is an independent actor. It receives events, does one job, and emits events.
-// The agent field defines *who* sits at this desk. The executor defines *how* it runs.
+import "fmt"
+
+// Desk is the execution unit — one agent, one job, one set of events.
+// It declares its group membership via the `parent` field.
 type Desk struct {
 	Kind        Kind              `yaml:"kind" json:"kind"`
 	ID          string            `yaml:"id,omitempty" json:"id,omitempty"`
 	Name        string            `yaml:"name,omitempty" json:"name,omitempty"`
 	Description string            `yaml:"description,omitempty" json:"description,omitempty"`
-	Agent       string            `yaml:"-" json:"agent,omitempty"`
+	Parent      string            `yaml:"parent,omitempty" json:"parent,omitempty"`
+	Agent       AgentRef          `yaml:"agent,omitempty" json:"agent,omitempty"`
 	SourcePath  string            `yaml:"-" json:"-"`
 	Executor    ExecutorConfig    `yaml:"executor" json:"executor"`
 	Concurrency ConcurrencyConfig `yaml:"concurrency,omitempty" json:"concurrency,omitempty"`
 
-	// Event subscriptions: which event types this desk listens to.
 	Subscribe []string `yaml:"subscribe,omitempty" json:"subscribe,omitempty"`
-	// Event emissions: which event types this desk produces on completion.
-	Emit []string `yaml:"emit,omitempty" json:"emit,omitempty"`
+	Emit      []string `yaml:"emit,omitempty" json:"emit,omitempty"`
+	Cron      string   `yaml:"cron,omitempty" json:"cron,omitempty"`
 
-	// Cron schedule expression (e.g. "*/30 * * * *" = every 30 minutes).
-	// When set, the desk auto-triggers on this schedule.
-	Cron string `yaml:"cron,omitempty" json:"cron,omitempty"`
+	Resources []string        `yaml:"resources,omitempty" json:"resources,omitempty"`
+	Tags      []string        `yaml:"tags,omitempty" json:"tags,omitempty"`
+	Policy    string          `yaml:"policy,omitempty" json:"policy,omitempty"`
+	Triggers  []TriggerConfig `yaml:"triggers,omitempty" json:"triggers,omitempty"`
+	Session   SessionConfig   `yaml:"session,omitempty" json:"session,omitempty"`
+}
 
-	// Resources bound to this desk (private — only this desk can access).
-	Resources []string `yaml:"resources,omitempty" json:"resources,omitempty"`
+// AgentRef is either a local agent ID (string) or a remote agent spec (object).
+//
+//	agent: developer            # local
+//	agent:                      # remote
+//	  type: remote
+//	  address: api.vendor.io/agents/ux-v1
+//	  api_key: ${KEY}
+type AgentRef struct {
+	// ID is the local agent name (set when YAML value is a plain string).
+	ID string `yaml:"-" json:"id,omitempty"`
 
-	// Tags for role-based permission matching (e.g. ["backend", "senior"]).
-	Tags []string `yaml:"tags,omitempty" json:"tags,omitempty"`
+	// Remote fields (set when YAML value is a mapping with type: remote).
+	Type    string `yaml:"type,omitempty" json:"type,omitempty"`
+	Address string `yaml:"address,omitempty" json:"address,omitempty"`
+	APIKey  string `yaml:"api_key,omitempty" json:"api_key,omitempty"`
+}
 
-	// Policy reference (optional).
-	Policy string `yaml:"policy,omitempty" json:"policy,omitempty"`
+func (a *AgentRef) IsRemote() bool { return a.Type == "remote" }
+func (a *AgentRef) IsLocal() bool  { return a.ID != "" }
 
-	// Triggers define automated event sources for this desk.
-	Triggers []TriggerConfig `yaml:"triggers,omitempty" json:"triggers,omitempty"`
-
-	// Session configures this desk's session behavior.
-	Session SessionConfig `yaml:"session,omitempty" json:"session,omitempty"`
+func (a *AgentRef) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	// Try plain string first.
+	var id string
+	if err := unmarshal(&id); err == nil {
+		a.ID = id
+		return nil
+	}
+	// Fall back to struct.
+	type agentRefAlias AgentRef
+	var alias agentRefAlias
+	if err := unmarshal(&alias); err != nil {
+		return fmt.Errorf("agent: expected string or object: %w", err)
+	}
+	*a = AgentRef(alias)
+	return nil
 }
 
 // ExecutorType identifies the execution backend.
 type ExecutorType string
 
 const (
-	ExecutorTypeAPI    ExecutorType = "api"    // built-in SDK (anthropic, openai, gemini)
-	ExecutorTypeExec   ExecutorType = "exec"   // arbitrary command via stdin/stdout
-	ExecutorTypeDocker ExecutorType = "docker" // docker container
-	ExecutorTypeRemote ExecutorType = "remote" // remote worker via gRPC (operator-controlled)
-	ExecutorTypeHuman  ExecutorType = "human"  // human participant — produces output via web UI
+	ExecutorTypeAPI    ExecutorType = "api"
+	ExecutorTypeExec   ExecutorType = "exec"
+	ExecutorTypeDocker ExecutorType = "docker"
+	ExecutorTypeRemote ExecutorType = "remote"
+	ExecutorTypeHuman  ExecutorType = "human"
+	ExecutorTypeSDK    ExecutorType = "sdk"
 )
 
 // SDKType identifies which built-in AI SDK to use when executor type is "api".
@@ -70,23 +97,18 @@ type ExecutorConfig struct {
 type ConcurrencyMode string
 
 const (
-	ConcurrencyQueue  ConcurrencyMode = "queue"  // queue requests (default)
-	ConcurrencySpawn  ConcurrencyMode = "spawn"  // spawn parallel workers up to Max
-	ConcurrencyReject ConcurrencyMode = "reject" // reject when busy
+	ConcurrencyQueue  ConcurrencyMode = "queue"
+	ConcurrencySpawn  ConcurrencyMode = "spawn"
+	ConcurrencyReject ConcurrencyMode = "reject"
 )
 
 // TriggerConfig defines an automated event source.
 type TriggerConfig struct {
-	// Type: "exec", "poll". Cron uses the existing desk.cron field.
-	Type string `yaml:"type" json:"type"`
-	// Exec: command to run. Fires event if exit code 0.
-	Command string `yaml:"command,omitempty" json:"command,omitempty"`
-	// Poll: URL to GET. Fires event if status 200.
-	URL string `yaml:"url,omitempty" json:"url,omitempty"`
-	// Interval between checks (default: "30s").
+	Type     string `yaml:"type" json:"type"`
+	Command  string `yaml:"command,omitempty" json:"command,omitempty"`
+	URL      string `yaml:"url,omitempty" json:"url,omitempty"`
 	Interval string `yaml:"interval,omitempty" json:"interval,omitempty"`
-	// Event type to emit when triggered.
-	Event string `yaml:"event,omitempty" json:"event,omitempty"`
+	Event    string `yaml:"event,omitempty" json:"event,omitempty"`
 }
 
 // ConcurrencyConfig declares how the hub manages simultaneous calls to this desk.
@@ -97,9 +119,6 @@ type ConcurrencyConfig struct {
 
 // SessionConfig controls session history behavior for a desk.
 type SessionConfig struct {
-	// MaxEntries limits how many session entries are loaded as context.
-	// Default: 40 (from store's maxSessionEntries constant).
-	// Set to 0 to disable session history entirely.
 	MaxEntries *int `yaml:"max_entries,omitempty" json:"max_entries,omitempty"`
 }
 
@@ -107,7 +126,7 @@ type SessionConfig struct {
 type CronInfo struct {
 	ID      string `json:"id"`
 	Cron    string `json:"cron"`
-	Type    string `json:"type"` // "desk" or "group"
+	Type    string `json:"type"`
 	NextRun string `json:"next_run,omitempty"`
 	LastRun string `json:"last_run,omitempty"`
 }

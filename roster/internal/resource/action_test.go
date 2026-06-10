@@ -75,11 +75,11 @@ func TestCheckPermission_ByGroup(t *testing.T) {
 			},
 		},
 		map[string]*types.Desk{
-			"backend-a": {ID: "backend-a"},
+			"backend-a": {ID: "backend-a", Parent: "dev-team"},
 			"designer":  {ID: "designer"},
 		},
 		map[string]*types.Group{
-			"dev-team": {ID: "dev-team", Desks: []string{"backend-a"}},
+			"dev-team": {ID: "dev-team"},
 		},
 	)
 
@@ -104,9 +104,12 @@ func TestCheckPermission_ByGroupLead(t *testing.T) {
 				},
 			},
 		},
-		map[string]*types.Desk{"lead": {ID: "lead"}},
+		map[string]*types.Desk{
+			"lead":   {ID: "lead"},
+			"worker": {ID: "worker", Parent: "dev-team"},
+		},
 		map[string]*types.Group{
-			"dev-team": {ID: "dev-team", Lead: &types.GroupLead{Desk: "lead"}, Desks: []string{"worker"}},
+			"dev-team": {ID: "dev-team", Lead: &types.GroupLead{Desk: "lead"}},
 		},
 	)
 

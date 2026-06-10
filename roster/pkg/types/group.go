@@ -1,8 +1,7 @@
 package types
 
 // GroupLead configures a lead desk for a group.
-// The lead desk runs twice: first to plan and assign work, last to synthesize results.
-// Position "both" (default): plan → members → synthesize.
+// Position "both" (default): lead(plan) → members(work) → lead(synthesize).
 // Position "first": lead decomposes, members execute.
 // Position "last": members run, lead synthesizes.
 type GroupLead struct {
@@ -10,21 +9,16 @@ type GroupLead struct {
 	Position string `yaml:"position,omitempty" json:"position,omitempty"`
 }
 
-// Group is a team. Desks in a group share an event stream — every desk sees
-// what the others produce.
-//
-// The lead desk runs twice: first to plan and assign work, last to synthesize results.
-//
-//	lead (plan)  →  members (work)  →  lead (synthesize)  →  output event
+// Group is a team container. Desks and sub-groups declare membership
+// via their `parent` field — the group does not list its children.
 type Group struct {
-	Kind        Kind            `yaml:"kind" json:"kind"`
-	ID          string          `yaml:"id,omitempty" json:"id,omitempty"`
-	Name        string          `yaml:"name,omitempty" json:"name,omitempty"`
-	Description string          `yaml:"description,omitempty" json:"description,omitempty"`
-	Lead        *GroupLead      `yaml:"lead,omitempty" json:"lead,omitempty"`
-	Desks       []string        `yaml:"desks,omitempty" json:"desks,omitempty"`
-	Groups      []string        `yaml:"groups,omitempty" json:"groups,omitempty"`
-	Resources   []string        `yaml:"resources,omitempty" json:"resources,omitempty"`
+	Kind        Kind       `yaml:"kind" json:"kind"`
+	ID          string     `yaml:"id,omitempty" json:"id,omitempty"`
+	Name        string     `yaml:"name,omitempty" json:"name,omitempty"`
+	Description string     `yaml:"description,omitempty" json:"description,omitempty"`
+	Parent      string     `yaml:"parent,omitempty" json:"parent,omitempty"`
+	Lead        *GroupLead `yaml:"lead,omitempty" json:"lead,omitempty"`
+	Resources   []string   `yaml:"resources,omitempty" json:"resources,omitempty"`
 
 	// Event subscriptions: which event types this group listens to.
 	Subscribe []string `yaml:"subscribe,omitempty" json:"subscribe,omitempty"`
@@ -32,16 +26,13 @@ type Group struct {
 	Emit []string `yaml:"emit,omitempty" json:"emit,omitempty"`
 
 	// Cron schedule expression (e.g. "0 */3 * * *" = every 3 hours).
-	// When set, the group auto-triggers on this schedule.
 	Cron string `yaml:"cron,omitempty" json:"cron,omitempty"`
 
 	Policy   string `yaml:"policy,omitempty" json:"policy,omitempty"`
 	Dispatch string `yaml:"dispatch,omitempty" json:"dispatch,omitempty"`
 
-	// Triggers define automated event sources for this group.
 	Triggers []TriggerConfig `yaml:"triggers,omitempty" json:"triggers,omitempty"`
 
-	// Defaults override organization-level defaults for desks in this group.
-	// Group defaults take priority over org defaults; desk-level config takes priority over both.
+	// Defaults override org-level defaults for desks in this group.
 	Defaults *DeskDefaults `yaml:"defaults,omitempty" json:"defaults,omitempty"`
 }

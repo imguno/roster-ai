@@ -1,16 +1,25 @@
 # Binaries
 roster/roster
 roster/roster.exe
+roster/bin/
 roster/dist/
 
 # Go
 roster/vendor/
+
+# Test artifacts
+roster/coverage.out
+roster/coverage.html
 
 # Dashboard build
 roster/internal/web/dashboard/node_modules/
 
 # Roster runtime data
 **/.roster/
+
+# Example SDK venvs and output
+examples/**/.venv/
+examples/**/hello-output.txt
 
 # Secrets
 .env

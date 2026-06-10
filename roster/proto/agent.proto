@@ -1,0 +1,74 @@
+syntax = "proto3";
+
+package roster.agent.v1;
+
+option go_package = "github.com/roster-io/roster/proto";
+
+// AgentService handles agent execution.
+service AgentService {
+  rpc Execute(TaskRequest) returns (TaskResponse);
+}
+
+message TaskRequest {
+  string event_type    = 1;
+  bytes  event_payload = 2;
+  string desk_id       = 3;
+  string agent_id      = 4;
+  string group_id      = 5;  // empty if desk has no parent group
+
+  repeated Note     notes     = 6;
+  repeated Message  session   = 7;
+  repeated Resource resources = 8;
+}
+
+message TaskResponse {
+  repeated EmitEvent  emissions       = 1;
+  repeated NoteUpdate note_updates    = 2;
+  map<string, double> metrics         = 3;
+  string              error           = 4;  // non-empty = execution failed
+  repeated LogEntry   logs            = 5;  // step + result logs for dashboard
+}
+
+message LogEntry {
+  string type      = 1;  // "step" | "result"
+  string content   = 2;
+  int64  timestamp = 3;  // unix millis
+}
+
+// --- shared types ---
+
+message Note {
+  string key   = 1;
+  bytes  value = 2;
+}
+
+message Message {
+  string desk_id   = 1;
+  string role      = 2;  // "assistant" | "tool"
+  string content   = 3;
+  string type      = 4;  // "llm" | "script" | "resource"
+  int64  timestamp = 5;  // unix millis
+}
+
+message Resource {
+  string        id      = 1;
+  string        type    = 2;  // "exec" | "mcp" | "sdk"
+  repeated Action actions = 3;
+}
+
+message Action {
+  string name = 1;
+  string exec = 2;  // exec 타입일 때 커맨드
+}
+
+message EmitEvent {
+  string event_type = 1;
+  bytes  payload    = 2;
+}
+
+message NoteUpdate {
+  string operation = 1;  // "set" | "delete"
+  string key       = 2;
+  bytes  value     = 3;
+}
+

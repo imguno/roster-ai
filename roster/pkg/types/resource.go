@@ -24,8 +24,18 @@ type Resource struct {
 	Type        string            `yaml:"type,omitempty" json:"type,omitempty"`
 	Config      map[string]string `yaml:"config,omitempty" json:"config,omitempty"`
 
-	Watch   []string                   `yaml:"watch,omitempty" json:"watch,omitempty"`
-	Actions map[string]*ResourceAction `yaml:"actions,omitempty" json:"actions,omitempty"`
+	Watch     []string                   `yaml:"watch,omitempty" json:"watch,omitempty"`
+	Actions   map[string]*ResourceAction `yaml:"actions,omitempty" json:"actions,omitempty"`
+
+	// Subscribe wires this resource as an event handler.
+	// Each entry is an event type that triggers the named action.
+	// e.g. "hello.done -> write" means: on hello.done, run the write action
+	// with the event payload as ROSTER_EVENT_PAYLOAD env var.
+	Subscribe []ResourceSubscription `yaml:"subscribe,omitempty" json:"subscribe,omitempty"`
+
+	// SDK is the sdk: reference for SDK-backed resources (e.g. "local:../sdk").
+	SDK      string         `yaml:"sdk,omitempty" json:"sdk,omitempty"`
+	Executor *ExecutorConfig `yaml:"executor,omitempty" json:"executor,omitempty"`
 
 	// Permissions is a list of rules. Each rule grants actions to desks/groups/tags.
 	// If empty, all actions are open to everyone.
@@ -42,6 +52,12 @@ type PermissionRule struct {
 	Desks  []string `yaml:"desks,omitempty" json:"desks,omitempty"`
 	Groups []string `yaml:"groups,omitempty" json:"groups,omitempty"`
 	Tags   []string `yaml:"tags,omitempty" json:"tags,omitempty"`
+}
+
+// ResourceSubscription wires a resource action to fire on a specific event type.
+type ResourceSubscription struct {
+	On     string `yaml:"on" json:"on"`         // event type to listen for
+	Action string `yaml:"action" json:"action"` // action name to execute
 }
 
 // ResourceAction is a named operation that desks can invoke on a resource.

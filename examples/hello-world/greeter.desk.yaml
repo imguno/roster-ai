@@ -1,0 +1,11 @@
+kind: desk
+id: greeter
+name: Greeter
+parent: hello-world
+agent: greeter
+
+subscribe:
+  - hub.started
+
+executor:
+  type: sdk

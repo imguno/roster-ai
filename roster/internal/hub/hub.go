@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -61,6 +62,8 @@ type Hub struct {
 	cronEntries map[string]cron.EntryID // subscriberID → cron entry ID
 
 	budget *BudgetTracker // hierarchical cost tracking (desk → group → org)
+
+	sdkProcs *sdkProcessManager
 }
 
 func New(registry Dispatcher, store state.Store, skills *skill.Resolver, recorder *observe.Recorder) *Hub {
@@ -82,6 +85,7 @@ func New(registry Dispatcher, store state.Store, skills *skill.Resolver, recorde
 		activeRuns:     make(map[string]context.CancelFunc),
 		cronEntries:    make(map[string]cron.EntryID),
 		budget:         newBudgetTracker(),
+		sdkProcs:       newSDKProcessManager(50100),
 	}
 }
 
@@ -114,28 +118,9 @@ func (h *Hub) Start(ctx context.Context) error {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
-	// Wire Organization routing rules → queue.
-	// Skip rules where the target already directly subscribes to the same event
-	// to prevent double-delivery when both routing and subscribe are configured.
-	if h.organization != nil {
-		for _, rule := range h.organization.Routing {
-			rule := rule
-			if h.directlySubscribes(rule.To, rule.On) {
-				continue
-			}
-			h.ensureQueue(rule.To)
-			h.bus.Subscribe("routing:"+rule.To, []string{rule.On}, func(_ context.Context, ev types.Event) error {
-				// Conditional routing: if 'when' is set, only route if payload contains the substring.
-				if rule.When != "" {
-					payload := strings.ToLower(string(ev.Payload))
-					if !strings.Contains(payload, strings.ToLower(rule.When)) {
-						return nil // condition not met, skip this route
-					}
-				}
-				h.enqueue(rule.To, ev)
-				return nil
-			})
-		}
+	// Install any SDK packages declared in agent configs.
+	if err := h.sdkProcs.EnsureSDK(ctx, h.agents, h.resources); err != nil {
+		return fmt.Errorf("hub: sdk setup: %w", err)
 	}
 
 	// Wire individual desk subscriptions → queue.
@@ -158,6 +143,33 @@ func (h *Hub) Start(ctx context.Context) error {
 			h.bus.Subscribe(id, group.Subscribe, func(_ context.Context, ev types.Event) error {
 				h.enqueue(id, ev)
 				return nil
+			})
+		}
+	}
+
+	// Wire resource subscriptions — fire action directly on event (no queue).
+	for id, res := range h.resources {
+		for _, sub := range res.Subscribe {
+			resID := id
+			actionName := sub.Action
+			eventTypes := []string{sub.On}
+			isSDK := res.Executor != nil && res.Executor.Type == types.ExecutorTypeSDK
+			resConfig := res.Config
+			h.bus.Subscribe("resource:"+resID+":"+actionName, eventTypes, func(ctx context.Context, ev types.Event) error {
+				params := map[string]string{"event_payload": string(ev.Payload)}
+				for k, v := range resConfig {
+					params[k] = v
+				}
+				if isSDK {
+					rc, err := h.sdkProcs.GetOrStartResource(ctx)
+					if err != nil {
+						return fmt.Errorf("resource %s: sdk not available: %w", resID, err)
+					}
+					_, err = executeResourceSDK(ctx, rc, resID, actionName, params)
+					return err
+				}
+				_, err := h.resRegistry.ExecuteAction(ctx, resID, actionName, params)
+				return err
 			})
 		}
 	}
@@ -430,32 +442,8 @@ func (h *Hub) mergeBatch(entries []*queue.Entry) types.Event {
 func (h *Hub) Reload(ctx context.Context, org *types.Organization, agents map[string]*types.Agent, desks map[string]*types.Desk, groups map[string]*types.Group, resources map[string]*types.Resource, policies map[string]*types.Policy) {
 	h.mu.Lock()
 
-	// Update org routing — unsubscribe old rules, re-subscribe all.
 	if org != nil {
-		if h.organization != nil {
-			for _, rule := range h.organization.Routing {
-				h.bus.Unsubscribe("routing:" + rule.To)
-			}
-		}
 		h.organization = org
-		for _, rule := range org.Routing {
-			rule := rule
-			if h.directlySubscribes(rule.To, rule.On) {
-				continue
-			}
-			h.ensureQueue(rule.To)
-			h.bus.Subscribe("routing:"+rule.To, []string{rule.On}, func(_ context.Context, ev types.Event) error {
-				// Conditional routing: if 'when' is set, only route if payload contains the substring.
-				if rule.When != "" {
-					payload := strings.ToLower(string(ev.Payload))
-					if !strings.Contains(payload, strings.ToLower(rule.When)) {
-						return nil // condition not met, skip this route
-					}
-				}
-				h.enqueue(rule.To, ev)
-				return nil
-			})
-		}
 	}
 
 	// Merge agents.
@@ -536,7 +524,16 @@ func (h *Hub) EmitSync(ctx context.Context, ev types.Event) []error {
 }
 
 func (h *Hub) Bus() *event.Bus                       { return h.bus }
-func (h *Hub) SetProjectDir(dir string)               { h.projectDir = dir }
+func (h *Hub) SetProjectDir(dir string) {
+	if abs, err := filepath.Abs(dir); err == nil {
+		dir = abs
+	}
+	h.projectDir = dir
+	h.sdkProcs.SetProjectDir(dir)
+}
+
+func (h *Hub) SetSDKPython(bin string) { h.sdkProcs.SetPythonBin(bin) }
+func (h *Hub) SetSDKNode(bin string)   { h.sdkProcs.SetNodeBin(bin) }
 func (h *Hub) SetQueueDir(dir string)                  { h.queueDir = dir }
 func (h *Hub) Events() []observe.Event                        { return h.recorder.Events() }
 func (h *Hub) Subscribe() (chan observe.Event, func())         { return h.recorder.Subscribe() }
@@ -745,8 +742,8 @@ func (h *Hub) runGroupActor(ctx context.Context, groupID string, group *types.Gr
 func (h *Hub) runGroupSequential(ctx context.Context, runID, groupID string, group *types.Group, input *types.Artifact, sess *session.Session) (*types.Artifact, error) {
 	current := input
 
-	// Run nested groups first, then member desks.
-	for _, subGroupID := range group.Groups {
+	// Run nested sub-groups first, then member desks.
+	for _, subGroupID := range h.groupSubGroups(groupID) {
 		subGroup, ok := h.groups[subGroupID]
 		if !ok {
 			continue
@@ -769,8 +766,17 @@ func (h *Hub) runGroupSequential(ctx context.Context, runID, groupID string, gro
 		maxRounds = 2
 	}
 
+	leadDeskID := ""
+	if group.Lead != nil {
+		leadDeskID = group.Lead.Desk
+	}
+
 	for round := 0; round < maxRounds; round++ {
-		for _, deskID := range group.Desks {
+		for _, deskID := range h.groupDesks(groupID) {
+			// Skip the lead desk — it is handled separately by runGroupCoordinate/Decompose/Synthesize.
+			if deskID == leadDeskID {
+				continue
+			}
 			// Group-level checkpoint: resume completed desks without re-running them.
 			// GroupStore already has messages from before the crash, so skip sess.Post to avoid duplicates.
 			checkpointKey := fmt.Sprintf("%s-round%d", deskID, round)
@@ -812,10 +818,11 @@ func (h *Hub) runGroupMembers(ctx context.Context, runID, groupID string, group 
 // runGroupParallel runs all member desks concurrently with the same input artifact.
 // Their outputs are collected in declaration order and concatenated into one artifact.
 func (h *Hub) runGroupParallel(ctx context.Context, runID, groupID string, group *types.Group, input *types.Artifact, sess *session.Session) (*types.Artifact, error) {
-	if len(group.Groups) > 0 {
+	memberDesks := h.groupDesks(groupID)
+	if len(h.groupSubGroups(groupID)) > 0 {
 		h.recorder.Record(observe.Event{RunID: runID, StepID: groupID, Type: observe.EventType("group.parallel.subgroups_ignored"), Error: "dispatch:parallel ignores nested groups; use dispatch:sequential for sub-group support"})
 	}
-	if len(group.Desks) == 0 {
+	if len(memberDesks) == 0 {
 		return input, nil
 	}
 
@@ -825,11 +832,11 @@ func (h *Hub) runGroupParallel(ctx context.Context, runID, groupID string, group
 		err      error
 	}
 
-	results := make([]result, len(group.Desks))
-	ch := make(chan result, len(group.Desks))
+	results := make([]result, len(memberDesks))
+	ch := make(chan result, len(memberDesks))
 	var wg sync.WaitGroup
 
-	for i, deskID := range group.Desks {
+	for i, deskID := range memberDesks {
 		checkpointKey := deskID + "-parallel"
 		if saved, ok := h.store.Run().LoadStep(runID, groupID, checkpointKey); ok {
 			results[i] = result{idx: i, artifact: saved}
@@ -852,7 +859,7 @@ func (h *Hub) runGroupParallel(ctx context.Context, runID, groupID string, group
 		if r.err != nil {
 			h.recorder.Record(observe.Event{
 				RunID:  runID,
-				StepID: group.Desks[r.idx],
+				StepID: memberDesks[r.idx],
 				Type:   observe.EventType("step.failed.continued"),
 				Error:  r.err.Error(),
 			})
@@ -860,7 +867,7 @@ func (h *Hub) runGroupParallel(ctx context.Context, runID, groupID string, group
 		}
 		results[r.idx] = r
 		if r.artifact != nil {
-			h.store.Run().SaveStep(runID, groupID, group.Desks[r.idx]+"-parallel", r.artifact)
+			h.store.Run().SaveStep(runID, groupID, memberDesks[r.idx]+"-parallel", r.artifact)
 		}
 	}
 
@@ -882,7 +889,7 @@ func (h *Hub) runGroupParallel(ctx context.Context, runID, groupID string, group
 
 func (h *Hub) runGroupCoordinate(ctx context.Context, runID, groupID string, group *types.Group, input *types.Artifact, sess *session.Session) (*types.Artifact, error) {
 	// Solo lead: no member desks — just run the lead once.
-	if len(group.Desks) == 0 {
+	if len(h.groupDesks(groupID)) == 0 {
 		return h.runGroupDecompose(ctx, runID, groupID, group, input, sess)
 	}
 
@@ -933,7 +940,7 @@ func (h *Hub) runGroupDecompose(ctx context.Context, runID, groupID string, grou
 			h.store.Run().SaveStep(runID, groupID, decompKey, leadArtifact)
 		}
 	}
-	if leadArtifact == nil || len(group.Desks) == 0 {
+	if leadArtifact == nil || len(h.groupDesks(groupID)) == 0 {
 		return leadArtifact, nil
 	}
 	return h.runGroupMembers(ctx, runID, groupID, group, leadArtifact, sess)
@@ -1040,8 +1047,8 @@ func (h *Hub) runDeskActor(ctx context.Context, deskID string, desk *types.Desk,
 }
 
 // executeDesk builds the task and dispatches to the executor.
-func (h *Hub) executeDesk(ctx context.Context, runID, deskID string, desk *types.Desk, input *types.Artifact, groupSession *session.Session) (*types.Artifact, error) {
-	agent := h.agents[desk.Agent]
+func (h *Hub) executeDesk(ctx context.Context, runID, deskID string, desk *types.Desk, input *types.Artifact, groupSession *session.Session, eventType ...string) (*types.Artifact, error) {
+	agent := h.agents[desk.Agent.ID]
 
 	var prompt string
 	if agent != nil {
@@ -1122,6 +1129,42 @@ func (h *Hub) executeDesk(ctx context.Context, runID, deskID string, desk *types
 		if pol, ok := h.policies[desk.Policy]; ok && pol.Retry > 0 {
 			maxAttempts = pol.Retry + 1
 		}
+	}
+
+	// SDK executor: use shared gRPC process (entry-point discovery).
+	if desk.Executor.Type == types.ExecutorTypeSDK {
+		if len(eventType) > 0 {
+			task.Options["event_type"] = eventType[0]
+		}
+		client, err := h.sdkProcs.GetOrStart(execCtx)
+		if err != nil {
+			return nil, err
+		}
+		result, err := executeSDK(execCtx, client, task)
+		if err != nil {
+			return nil, err
+		}
+		// Publish emitted events to the bus.
+		for _, em := range result.Emissions {
+			h.bus.PublishAsync(ctx, types.Event{
+				Type:    em.EventType,
+				Payload: em.Payload,
+			})
+		}
+		// Save step/result logs to session for dashboard display.
+		if len(result.Logs) > 0 && desk.Parent != "" {
+			if sess := h.sessions.Get(desk.Parent); sess != nil {
+				for _, l := range result.Logs {
+					_ = sess.Post(state.Message{
+						DeskID:  deskID,
+						Role:    "agent",
+						Type:    l.Type,
+						Content: l.Content,
+					})
+				}
+			}
+		}
+		return result.Artifact, nil
 	}
 
 	for attempt := 0; attempt < maxAttempts; attempt++ {
@@ -1258,18 +1301,8 @@ func (h *Hub) resolveResources(ctx context.Context, deskID string) ([]sdk.TaskRe
 		}
 	}
 
-	for _, group := range h.groups {
-		isMember := false
-		for _, memberID := range group.Desks {
-			if memberID == deskID {
-				isMember = true
-				break
-			}
-		}
-		if !isMember && group.Lead != nil && group.Lead.Desk == deskID {
-			isMember = true
-		}
-		if isMember {
+	for gid, group := range h.groups {
+		if h.deskInGroup(gid, deskID) {
 			for _, resID := range group.Resources {
 				accessibleIDs[resID] = true
 			}
@@ -1411,6 +1444,43 @@ func (h *Hub) Warnings() []types.Warning {
 	return warnings
 }
 
+
+// groupDesks returns IDs of desks whose parent is groupID.
+func (h *Hub) groupDesks(groupID string) []string {
+	var ids []string
+	for id, d := range h.desks {
+		if d.Parent == groupID {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+// groupSubGroups returns IDs of groups whose parent is groupID.
+func (h *Hub) groupSubGroups(groupID string) []string {
+	var ids []string
+	for id, g := range h.groups {
+		if g.Parent == groupID {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+// deskInGroup reports whether deskID is a member or lead of groupID.
+func (h *Hub) deskInGroup(groupID, deskID string) bool {
+	group, ok := h.groups[groupID]
+	if !ok {
+		return false
+	}
+	if group.Lead != nil && group.Lead.Desk == deskID {
+		return true
+	}
+	if desk, ok := h.desks[deskID]; ok {
+		return desk.Parent == groupID
+	}
+	return false
+}
 
 func (h *Hub) watchResource(ctx context.Context, resourceID string, res *types.Resource) {
 	w := resource.NewWatcher(res)

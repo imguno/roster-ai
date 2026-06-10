@@ -1,0 +1,4 @@
+kind: agent
+id: greeter
+name: Greeter
+sdk: "local:../../../roster-sdk-python"

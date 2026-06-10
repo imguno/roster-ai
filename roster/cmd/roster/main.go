@@ -42,7 +42,7 @@ func main() {
 
 	switch os.Args[1] {
 	case "hub":
-		dir, uiAddr, storeBackend := ".", ":8080", ""
+		dir, uiAddr, storeBackend, pythonBin, nodeBin := ".", ":8080", "", "", ""
 		for i := 2; i < len(os.Args); i++ {
 			switch os.Args[i] {
 			case "--dir":
@@ -60,9 +60,19 @@ func main() {
 					storeBackend = os.Args[i+1]
 					i++
 				}
+			case "--python":
+				if i+1 < len(os.Args) {
+					pythonBin = os.Args[i+1]
+					i++
+				}
+			case "--node":
+				if i+1 < len(os.Args) {
+					nodeBin = os.Args[i+1]
+					i++
+				}
 			}
 		}
-		if err := startHub(ctx, dir, uiAddr, storeBackend); err != nil {
+		if err := startHub(ctx, dir, uiAddr, storeBackend, pythonBin, nodeBin); err != nil {
 			fmt.Fprintln(os.Stderr, "error:", err)
 			os.Exit(1)
 		}
@@ -138,7 +148,7 @@ func main() {
 	}
 }
 
-func startHub(ctx context.Context, dir, uiAddr, storeBackend string) error {
+func startHub(ctx context.Context, dir, uiAddr, storeBackend, pythonBin, nodeBin string) error {
 	// --- Phase 1: Hub infrastructure (always succeeds) ---
 	dataDir := filepath.Join(dir, ".roster", "data")
 
@@ -171,6 +181,12 @@ func startHub(ctx context.Context, dir, uiAddr, storeBackend string) error {
 	h := hub.New(reg, store, resolver, recorder)
 	h.SetProjectDir(dir)
 	h.SetQueueDir(dataDir)
+	if pythonBin != "" {
+		h.SetSDKPython(pythonBin)
+	}
+	if nodeBin != "" {
+		h.SetSDKNode(nodeBin)
+	}
 
 	// --- Phase 2: Load project (non-fatal — hub starts regardless) ---
 	orgName := "(empty hub)"
@@ -912,10 +928,10 @@ func runDryRun(args []string) error {
 		fmt.Println("  ✓ All skills resolved")
 	}
 
-	// 4. Simulate routing
-	if project.Organization != nil && len(project.Organization.Routing) > 0 {
+	// 4. Simulate event flow (subscribe/emit based)
+	{
 		fmt.Println()
-		fmt.Println("  Routing simulation:")
+		fmt.Println("  Event flow:")
 
 		// Build emit map: event → emitters
 		emitMap := map[string][]string{}
@@ -930,92 +946,47 @@ func runDryRun(args []string) error {
 			}
 		}
 
-		for _, rule := range project.Organization.Routing {
-			sources := emitMap[rule.On]
-			sourceStr := "(external)"
-			if len(sources) > 0 {
-				sourceStr = strings.Join(sources, ", ")
-			}
-
-			// Check if target exists and is wired
-			if g, ok := project.Groups[rule.To]; ok {
-				targetType := "group"
-				lead := 0
-				if g.Lead != nil {
-					lead = 1
-				}
-				targetDesks := len(g.Desks) + lead
-				dispatch := g.Dispatch
-				if dispatch == "" {
-					dispatch = "sequential"
-				}
-				fmt.Printf("    %s → [%s] → %s (%s, %d desks, %s)\n",
-					sourceStr, rule.On, rule.To, targetType, targetDesks, dispatch)
-			} else if _, ok := project.Desks[rule.To]; ok {
-				targetType := "desk"
-				fmt.Printf("    %s → [%s] → %s (%s)\n",
-					sourceStr, rule.On, rule.To, targetType)
-			} else {
-				fmt.Printf("    %s → [%s] → %s (NOT FOUND!)\n",
-					sourceStr, rule.On, rule.To)
-			}
-		}
-
-		// Check for unrouted emits (events emitted but no routing rule catches them)
-		fmt.Println()
-		routedEvents := map[string]bool{}
-		for _, rule := range project.Organization.Routing {
-			routedEvents[rule.On] = true
-		}
-		unrouted := []string{}
-		for ev := range emitMap {
-			if !routedEvents[ev] {
-				unrouted = append(unrouted, ev)
-			}
-		}
-		if len(unrouted) > 0 {
-			sort.Strings(unrouted)
-			fmt.Printf("  ⚠ Unrouted events (emitted but no routing rule):\n")
-			for _, ev := range unrouted {
-				fmt.Printf("      %s (from %s)\n", ev, strings.Join(emitMap[ev], ", "))
-			}
-		} else {
-			fmt.Println("  ✓ All emitted events are routed")
-		}
-
-		// Check for subscriptions without emitters
-		subEvents := map[string][]string{}
+		// Build subscribe map: event → subscribers
+		subMap := map[string][]string{}
 		for id, g := range project.Groups {
 			for _, ev := range g.Subscribe {
-				subEvents[ev] = append(subEvents[ev], id)
+				subMap[ev] = append(subMap[ev], id)
 			}
 		}
 		for id, d := range project.Desks {
 			for _, ev := range d.Subscribe {
-				subEvents[ev] = append(subEvents[ev], id)
+				subMap[ev] = append(subMap[ev], id)
 			}
 		}
-		orphanSubs := []string{}
-		for ev := range subEvents {
-			if _, emitted := emitMap[ev]; !emitted {
-				// Check if it's a routing source event
-				isRouted := false
-				for _, rule := range project.Organization.Routing {
-					if rule.On == ev {
-						isRouted = true
-						break
-					}
-				}
-				if !isRouted && ev != "hub.started" {
-					orphanSubs = append(orphanSubs, ev)
-				}
-			}
+
+		// Print connections
+		allEvents := map[string]bool{}
+		for ev := range emitMap {
+			allEvents[ev] = true
 		}
-		if len(orphanSubs) > 0 {
-			sort.Strings(orphanSubs)
-			fmt.Printf("  ⚠ Orphan subscriptions (subscribed but nothing emits):\n")
-			for _, ev := range orphanSubs {
-				fmt.Printf("      %s (subscribers: %s)\n", ev, strings.Join(subEvents[ev], ", "))
+		for ev := range subMap {
+			allEvents[ev] = true
+		}
+		evList := make([]string, 0, len(allEvents))
+		for ev := range allEvents {
+			evList = append(evList, ev)
+		}
+		sort.Strings(evList)
+		for _, ev := range evList {
+			emitters := emitMap[ev]
+			subs := subMap[ev]
+			emStr := "(external)"
+			if len(emitters) > 0 {
+				emStr = strings.Join(emitters, ", ")
+			}
+			subStr := "(none)"
+			if len(subs) > 0 {
+				subStr = strings.Join(subs, ", ")
+			}
+			if len(subs) == 0 {
+				fmt.Printf("    ⚠ [%s] emitted by %s — no subscribers\n", ev, emStr)
+			} else {
+				fmt.Printf("    [%s]: %s → %s\n", ev, emStr, subStr)
 			}
 		}
 	}
