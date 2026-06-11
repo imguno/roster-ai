@@ -41,6 +41,9 @@ type Task struct {
 	// Resources lists the resources available to this desk with their config.
 	// The agent reads Config to connect to the external system itself.
 	Resources []TaskResource
+
+	// Skills maps skill name → resolved prompt content.
+	Skills map[string]string
 }
 
 // TaskResource describes a resource available to the desk during execution.

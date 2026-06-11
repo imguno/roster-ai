@@ -2,7 +2,7 @@
 // versions:
 // 	protoc-gen-go v1.36.11
 // 	protoc        v7.35.0
-// source: agent.proto
+// source: proto/agent.proto
 
 package proto
 
@@ -33,13 +33,14 @@ type TaskRequest struct {
 	Resources     []*Resource            `protobuf:"bytes,8,rep,name=resources,proto3" json:"resources,omitempty"`
 	Options       map[string]string      `protobuf:"bytes,9,rep,name=options,proto3" json:"options,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"` // executor params from desk config
 	Env           map[string]string      `protobuf:"bytes,10,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`        // executor env from desk config
+	Skills        []*Skill               `protobuf:"bytes,11,rep,name=skills,proto3" json:"skills,omitempty"`                                                                            // merged skill prompts/files
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *TaskRequest) Reset() {
 	*x = TaskRequest{}
-	mi := &file_agent_proto_msgTypes[0]
+	mi := &file_proto_agent_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -51,7 +52,7 @@ func (x *TaskRequest) String() string {
 func (*TaskRequest) ProtoMessage() {}
 
 func (x *TaskRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[0]
+	mi := &file_proto_agent_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -64,7 +65,7 @@ func (x *TaskRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TaskRequest.ProtoReflect.Descriptor instead.
 func (*TaskRequest) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{0}
+	return file_proto_agent_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *TaskRequest) GetEventType() string {
@@ -137,6 +138,65 @@ func (x *TaskRequest) GetEnv() map[string]string {
 	return nil
 }
 
+func (x *TaskRequest) GetSkills() []*Skill {
+	if x != nil {
+		return x.Skills
+	}
+	return nil
+}
+
+type Skill struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Content       string                 `protobuf:"bytes,2,opt,name=content,proto3" json:"content,omitempty"` // resolved skill prompt text
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Skill) Reset() {
+	*x = Skill{}
+	mi := &file_proto_agent_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Skill) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Skill) ProtoMessage() {}
+
+func (x *Skill) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_agent_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Skill.ProtoReflect.Descriptor instead.
+func (*Skill) Descriptor() ([]byte, []int) {
+	return file_proto_agent_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *Skill) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *Skill) GetContent() string {
+	if x != nil {
+		return x.Content
+	}
+	return ""
+}
+
 type TaskResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Emissions     []*EmitEvent           `protobuf:"bytes,1,rep,name=emissions,proto3" json:"emissions,omitempty"`
@@ -150,7 +210,7 @@ type TaskResponse struct {
 
 func (x *TaskResponse) Reset() {
 	*x = TaskResponse{}
-	mi := &file_agent_proto_msgTypes[1]
+	mi := &file_proto_agent_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -162,7 +222,7 @@ func (x *TaskResponse) String() string {
 func (*TaskResponse) ProtoMessage() {}
 
 func (x *TaskResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[1]
+	mi := &file_proto_agent_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -175,7 +235,7 @@ func (x *TaskResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TaskResponse.ProtoReflect.Descriptor instead.
 func (*TaskResponse) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{1}
+	return file_proto_agent_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *TaskResponse) GetEmissions() []*EmitEvent {
@@ -224,7 +284,7 @@ type LogEntry struct {
 
 func (x *LogEntry) Reset() {
 	*x = LogEntry{}
-	mi := &file_agent_proto_msgTypes[2]
+	mi := &file_proto_agent_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -236,7 +296,7 @@ func (x *LogEntry) String() string {
 func (*LogEntry) ProtoMessage() {}
 
 func (x *LogEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[2]
+	mi := &file_proto_agent_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -249,7 +309,7 @@ func (x *LogEntry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogEntry.ProtoReflect.Descriptor instead.
 func (*LogEntry) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{2}
+	return file_proto_agent_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *LogEntry) GetType() string {
@@ -283,7 +343,7 @@ type Note struct {
 
 func (x *Note) Reset() {
 	*x = Note{}
-	mi := &file_agent_proto_msgTypes[3]
+	mi := &file_proto_agent_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -295,7 +355,7 @@ func (x *Note) String() string {
 func (*Note) ProtoMessage() {}
 
 func (x *Note) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[3]
+	mi := &file_proto_agent_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -308,7 +368,7 @@ func (x *Note) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Note.ProtoReflect.Descriptor instead.
 func (*Note) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{3}
+	return file_proto_agent_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *Note) GetKey() string {
@@ -338,7 +398,7 @@ type Message struct {
 
 func (x *Message) Reset() {
 	*x = Message{}
-	mi := &file_agent_proto_msgTypes[4]
+	mi := &file_proto_agent_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -350,7 +410,7 @@ func (x *Message) String() string {
 func (*Message) ProtoMessage() {}
 
 func (x *Message) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[4]
+	mi := &file_proto_agent_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -363,7 +423,7 @@ func (x *Message) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Message.ProtoReflect.Descriptor instead.
 func (*Message) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{4}
+	return file_proto_agent_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *Message) GetDeskId() string {
@@ -412,7 +472,7 @@ type Resource struct {
 
 func (x *Resource) Reset() {
 	*x = Resource{}
-	mi := &file_agent_proto_msgTypes[5]
+	mi := &file_proto_agent_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -424,7 +484,7 @@ func (x *Resource) String() string {
 func (*Resource) ProtoMessage() {}
 
 func (x *Resource) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[5]
+	mi := &file_proto_agent_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -437,7 +497,7 @@ func (x *Resource) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Resource.ProtoReflect.Descriptor instead.
 func (*Resource) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{5}
+	return file_proto_agent_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *Resource) GetId() string {
@@ -471,7 +531,7 @@ type Action struct {
 
 func (x *Action) Reset() {
 	*x = Action{}
-	mi := &file_agent_proto_msgTypes[6]
+	mi := &file_proto_agent_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -483,7 +543,7 @@ func (x *Action) String() string {
 func (*Action) ProtoMessage() {}
 
 func (x *Action) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[6]
+	mi := &file_proto_agent_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -496,7 +556,7 @@ func (x *Action) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Action.ProtoReflect.Descriptor instead.
 func (*Action) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{6}
+	return file_proto_agent_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *Action) GetName() string {
@@ -523,7 +583,7 @@ type EmitEvent struct {
 
 func (x *EmitEvent) Reset() {
 	*x = EmitEvent{}
-	mi := &file_agent_proto_msgTypes[7]
+	mi := &file_proto_agent_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -535,7 +595,7 @@ func (x *EmitEvent) String() string {
 func (*EmitEvent) ProtoMessage() {}
 
 func (x *EmitEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[7]
+	mi := &file_proto_agent_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -548,7 +608,7 @@ func (x *EmitEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EmitEvent.ProtoReflect.Descriptor instead.
 func (*EmitEvent) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{7}
+	return file_proto_agent_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *EmitEvent) GetEventType() string {
@@ -576,7 +636,7 @@ type NoteUpdate struct {
 
 func (x *NoteUpdate) Reset() {
 	*x = NoteUpdate{}
-	mi := &file_agent_proto_msgTypes[8]
+	mi := &file_proto_agent_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -588,7 +648,7 @@ func (x *NoteUpdate) String() string {
 func (*NoteUpdate) ProtoMessage() {}
 
 func (x *NoteUpdate) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_proto_msgTypes[8]
+	mi := &file_proto_agent_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -601,7 +661,7 @@ func (x *NoteUpdate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NoteUpdate.ProtoReflect.Descriptor instead.
 func (*NoteUpdate) Descriptor() ([]byte, []int) {
-	return file_agent_proto_rawDescGZIP(), []int{8}
+	return file_proto_agent_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *NoteUpdate) GetOperation() string {
@@ -625,11 +685,11 @@ func (x *NoteUpdate) GetValue() []byte {
 	return nil
 }
 
-var File_agent_proto protoreflect.FileDescriptor
+var File_proto_agent_proto protoreflect.FileDescriptor
 
-const file_agent_proto_rawDesc = "" +
+const file_proto_agent_proto_rawDesc = "" +
 	"\n" +
-	"\vagent.proto\x12\x0froster.agent.v1\"\xac\x04\n" +
+	"\x11proto/agent.proto\x12\x0froster.agent.v1\"\xdc\x04\n" +
 	"\vTaskRequest\x12\x1d\n" +
 	"\n" +
 	"event_type\x18\x01 \x01(\tR\teventType\x12#\n" +
@@ -642,13 +702,17 @@ const file_agent_proto_rawDesc = "" +
 	"\tresources\x18\b \x03(\v2\x19.roster.agent.v1.ResourceR\tresources\x12C\n" +
 	"\aoptions\x18\t \x03(\v2).roster.agent.v1.TaskRequest.OptionsEntryR\aoptions\x127\n" +
 	"\x03env\x18\n" +
-	" \x03(\v2%.roster.agent.v1.TaskRequest.EnvEntryR\x03env\x1a:\n" +
+	" \x03(\v2%.roster.agent.v1.TaskRequest.EnvEntryR\x03env\x12.\n" +
+	"\x06skills\x18\v \x03(\v2\x16.roster.agent.v1.SkillR\x06skills\x1a:\n" +
 	"\fOptionsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xcf\x02\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"5\n" +
+	"\x05Skill\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
+	"\acontent\x18\x02 \x01(\tR\acontent\"\xcf\x02\n" +
 	"\fTaskResponse\x128\n" +
 	"\temissions\x18\x01 \x03(\v2\x1a.roster.agent.v1.EmitEventR\temissions\x12>\n" +
 	"\fnote_updates\x18\x02 \x03(\v2\x1b.roster.agent.v1.NoteUpdateR\vnoteUpdates\x12D\n" +
@@ -691,72 +755,74 @@ const file_agent_proto_rawDesc = "" +
 	"\aExecute\x12\x1c.roster.agent.v1.TaskRequest\x1a\x1d.roster.agent.v1.TaskResponseB#Z!github.com/roster-io/roster/protob\x06proto3"
 
 var (
-	file_agent_proto_rawDescOnce sync.Once
-	file_agent_proto_rawDescData []byte
+	file_proto_agent_proto_rawDescOnce sync.Once
+	file_proto_agent_proto_rawDescData []byte
 )
 
-func file_agent_proto_rawDescGZIP() []byte {
-	file_agent_proto_rawDescOnce.Do(func() {
-		file_agent_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_agent_proto_rawDesc), len(file_agent_proto_rawDesc)))
+func file_proto_agent_proto_rawDescGZIP() []byte {
+	file_proto_agent_proto_rawDescOnce.Do(func() {
+		file_proto_agent_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_proto_agent_proto_rawDesc), len(file_proto_agent_proto_rawDesc)))
 	})
-	return file_agent_proto_rawDescData
+	return file_proto_agent_proto_rawDescData
 }
 
-var file_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
-var file_agent_proto_goTypes = []any{
+var file_proto_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_proto_agent_proto_goTypes = []any{
 	(*TaskRequest)(nil),  // 0: roster.agent.v1.TaskRequest
-	(*TaskResponse)(nil), // 1: roster.agent.v1.TaskResponse
-	(*LogEntry)(nil),     // 2: roster.agent.v1.LogEntry
-	(*Note)(nil),         // 3: roster.agent.v1.Note
-	(*Message)(nil),      // 4: roster.agent.v1.Message
-	(*Resource)(nil),     // 5: roster.agent.v1.Resource
-	(*Action)(nil),       // 6: roster.agent.v1.Action
-	(*EmitEvent)(nil),    // 7: roster.agent.v1.EmitEvent
-	(*NoteUpdate)(nil),   // 8: roster.agent.v1.NoteUpdate
-	nil,                  // 9: roster.agent.v1.TaskRequest.OptionsEntry
-	nil,                  // 10: roster.agent.v1.TaskRequest.EnvEntry
-	nil,                  // 11: roster.agent.v1.TaskResponse.MetricsEntry
+	(*Skill)(nil),        // 1: roster.agent.v1.Skill
+	(*TaskResponse)(nil), // 2: roster.agent.v1.TaskResponse
+	(*LogEntry)(nil),     // 3: roster.agent.v1.LogEntry
+	(*Note)(nil),         // 4: roster.agent.v1.Note
+	(*Message)(nil),      // 5: roster.agent.v1.Message
+	(*Resource)(nil),     // 6: roster.agent.v1.Resource
+	(*Action)(nil),       // 7: roster.agent.v1.Action
+	(*EmitEvent)(nil),    // 8: roster.agent.v1.EmitEvent
+	(*NoteUpdate)(nil),   // 9: roster.agent.v1.NoteUpdate
+	nil,                  // 10: roster.agent.v1.TaskRequest.OptionsEntry
+	nil,                  // 11: roster.agent.v1.TaskRequest.EnvEntry
+	nil,                  // 12: roster.agent.v1.TaskResponse.MetricsEntry
 }
-var file_agent_proto_depIdxs = []int32{
-	3,  // 0: roster.agent.v1.TaskRequest.notes:type_name -> roster.agent.v1.Note
-	4,  // 1: roster.agent.v1.TaskRequest.session:type_name -> roster.agent.v1.Message
-	5,  // 2: roster.agent.v1.TaskRequest.resources:type_name -> roster.agent.v1.Resource
-	9,  // 3: roster.agent.v1.TaskRequest.options:type_name -> roster.agent.v1.TaskRequest.OptionsEntry
-	10, // 4: roster.agent.v1.TaskRequest.env:type_name -> roster.agent.v1.TaskRequest.EnvEntry
-	7,  // 5: roster.agent.v1.TaskResponse.emissions:type_name -> roster.agent.v1.EmitEvent
-	8,  // 6: roster.agent.v1.TaskResponse.note_updates:type_name -> roster.agent.v1.NoteUpdate
-	11, // 7: roster.agent.v1.TaskResponse.metrics:type_name -> roster.agent.v1.TaskResponse.MetricsEntry
-	2,  // 8: roster.agent.v1.TaskResponse.logs:type_name -> roster.agent.v1.LogEntry
-	6,  // 9: roster.agent.v1.Resource.actions:type_name -> roster.agent.v1.Action
-	0,  // 10: roster.agent.v1.AgentService.Execute:input_type -> roster.agent.v1.TaskRequest
-	1,  // 11: roster.agent.v1.AgentService.Execute:output_type -> roster.agent.v1.TaskResponse
-	11, // [11:12] is the sub-list for method output_type
-	10, // [10:11] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+var file_proto_agent_proto_depIdxs = []int32{
+	4,  // 0: roster.agent.v1.TaskRequest.notes:type_name -> roster.agent.v1.Note
+	5,  // 1: roster.agent.v1.TaskRequest.session:type_name -> roster.agent.v1.Message
+	6,  // 2: roster.agent.v1.TaskRequest.resources:type_name -> roster.agent.v1.Resource
+	10, // 3: roster.agent.v1.TaskRequest.options:type_name -> roster.agent.v1.TaskRequest.OptionsEntry
+	11, // 4: roster.agent.v1.TaskRequest.env:type_name -> roster.agent.v1.TaskRequest.EnvEntry
+	1,  // 5: roster.agent.v1.TaskRequest.skills:type_name -> roster.agent.v1.Skill
+	8,  // 6: roster.agent.v1.TaskResponse.emissions:type_name -> roster.agent.v1.EmitEvent
+	9,  // 7: roster.agent.v1.TaskResponse.note_updates:type_name -> roster.agent.v1.NoteUpdate
+	12, // 8: roster.agent.v1.TaskResponse.metrics:type_name -> roster.agent.v1.TaskResponse.MetricsEntry
+	3,  // 9: roster.agent.v1.TaskResponse.logs:type_name -> roster.agent.v1.LogEntry
+	7,  // 10: roster.agent.v1.Resource.actions:type_name -> roster.agent.v1.Action
+	0,  // 11: roster.agent.v1.AgentService.Execute:input_type -> roster.agent.v1.TaskRequest
+	2,  // 12: roster.agent.v1.AgentService.Execute:output_type -> roster.agent.v1.TaskResponse
+	12, // [12:13] is the sub-list for method output_type
+	11, // [11:12] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
-func init() { file_agent_proto_init() }
-func file_agent_proto_init() {
-	if File_agent_proto != nil {
+func init() { file_proto_agent_proto_init() }
+func file_proto_agent_proto_init() {
+	if File_proto_agent_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agent_proto_rawDesc), len(file_agent_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_agent_proto_rawDesc), len(file_proto_agent_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   12,
+			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
-		GoTypes:           file_agent_proto_goTypes,
-		DependencyIndexes: file_agent_proto_depIdxs,
-		MessageInfos:      file_agent_proto_msgTypes,
+		GoTypes:           file_proto_agent_proto_goTypes,
+		DependencyIndexes: file_proto_agent_proto_depIdxs,
+		MessageInfos:      file_proto_agent_proto_msgTypes,
 	}.Build()
-	File_agent_proto = out.File
-	file_agent_proto_goTypes = nil
-	file_agent_proto_depIdxs = nil
+	File_proto_agent_proto = out.File
+	file_proto_agent_proto_goTypes = nil
+	file_proto_agent_proto_depIdxs = nil
 }

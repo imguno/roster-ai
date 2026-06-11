@@ -451,9 +451,8 @@ function buildGraph(org, desks, groups, resources, deskStates, queues, events, b
     if (ev.type === 'step.started' && ev.step_id) lastRunMap[ev.step_id] = ev.at
 
   const deskToGroup = {}
-  for (const [gid, g] of Object.entries(groups)) {
-    for (const did of (g.desks || [])) deskToGroup[did] = gid
-    if (g.lead?.desk) deskToGroup[g.lead.desk] = gid
+  for (const [id, d] of Object.entries(desks)) {
+    if (d.parent && groups[d.parent]) deskToGroup[id] = d.parent
   }
 
   // System events
@@ -469,7 +468,7 @@ function buildGraph(org, desks, groups, resources, deskStates, queues, events, b
 
   // Groups
   for (const [id, g] of Object.entries(groups)) {
-    const allDesks = g.lead ? [g.lead.desk, ...(g.desks || [])] : (g.desks || [])
+    const allDesks = Object.entries(desks).filter(([, d]) => d.parent === id).map(([did]) => did)
     const status = getGroupStatus(allDesks, deskStates)
     const qd = (queues[id] || 0) + allDesks.reduce((s, d) => s + (queues[d] || 0), 0)
     const deskCount = allDesks.length

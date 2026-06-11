@@ -15,7 +15,7 @@ type HubAPI interface {
 	Events() []observe.Event
 	Subscribe() (chan observe.Event, func())
 	Emit(ctx context.Context, ev types.Event)
-	Reload(ctx context.Context, org *types.Organization, agents map[string]*types.Agent, desks map[string]*types.Desk, groups map[string]*types.Group, resources map[string]*types.Resource, policies map[string]*types.Policy)
+	Reload(ctx context.Context, org *types.Organization, agents map[string]*types.Agent, desks map[string]*types.Desk, groups map[string]*types.Group, resources map[string]*types.Resource)
 	SubmitHumanInput(deskID, content string) bool
 	DeskArtifact(deskID string) (string, bool)
 	DeskSession(deskID string) ([]store.SessionEntry, bool)
@@ -28,7 +28,6 @@ type HubAPI interface {
 	CancelRun(runID string) bool
 	RecordMetrics(deskID string, metrics map[string]float64)
 	GetMetrics(deskID string) map[string]map[string]float64
-	CronStatus() []types.CronInfo
 	BudgetStatus() map[string]float64
 }
 
@@ -65,7 +64,6 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/runs/", s.handleRunSub)
 	s.mux.HandleFunc("/api/metrics", s.handleMetrics)
 	s.mux.HandleFunc("/api/budget", s.handleBudget)
-	s.mux.HandleFunc("/api/crons", s.handleCrons)
 	s.mux.HandleFunc("/webhooks/", s.handleWebhook)
 	s.mux.Handle("/static/", http.FileServer(http.FS(staticFS)))
 	s.mux.HandleFunc("/", s.handleUI)

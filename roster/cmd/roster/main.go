@@ -222,19 +222,18 @@ func startHub(ctx context.Context, dir, uiAddr, storeBackend, pythonBin, nodeBin
 				h = hub.New(reg, store, resolver, recorder)
 				h.SetProjectDir(dir)
 				h.SetQueueDir(dataDir)
+				if pythonBin != "" {
+					h.SetSDKPython(pythonBin)
+				}
+				if nodeBin != "" {
+					h.SetSDKNode(nodeBin)
+				}
 			}
 			storeCfg = project.Organization.Store
 		}
 
 		// Load config into hub (even with validation warnings — partial config is fine).
-		h.Load(project.Organization, project.Agents, project.Desks, project.Groups, project.Resources, project.Policies)
-
-		// Configure per-desk concurrency.
-		for id, d := range project.Desks {
-			if d.Concurrency.Mode != "" {
-				reg.ConfigureDesk(id, d.Concurrency)
-			}
-		}
+		h.Load(project.Organization, project.Agents, project.Desks, project.Groups, project.Resources)
 
 		if project.Organization != nil {
 			orgName = project.Organization.Name
@@ -541,7 +540,7 @@ func watchAndReload(ctx context.Context, dir string, h *hub.Hub) {
 			}
 			// Register any newly added config files.
 			registerFiles(project)
-			h.Reload(ctx, project.Organization, project.Agents, project.Desks, project.Groups, project.Resources, project.Policies)
+			h.Reload(ctx, project.Organization, project.Agents, project.Desks, project.Groups, project.Resources)
 			fmt.Println("  ↺ Config reloaded")
 		}
 	}
@@ -897,8 +896,8 @@ func runDryRun(args []string) error {
 	if err != nil {
 		return fmt.Errorf("config load failed: %w", err)
 	}
-	fmt.Printf("  ✓ Config loaded: %d desks, %d groups, %d resources, %d policies\n",
-		len(project.Desks), len(project.Groups), len(project.Resources), len(project.Policies))
+	fmt.Printf("  ✓ Config loaded: %d desks, %d groups, %d resources\n",
+		len(project.Desks), len(project.Groups), len(project.Resources))
 
 	// 2. Validate
 	if err := validate.Project(project); err != nil {
@@ -1015,22 +1014,7 @@ func runDryRun(args []string) error {
 
 	// 6. Summary
 	fmt.Println()
-	cronCount := 0
-	triggerCount := 0
-	for _, d := range project.Desks {
-		if d.Cron != "" {
-			cronCount++
-		}
-		triggerCount += len(d.Triggers)
-	}
-	for _, g := range project.Groups {
-		if g.Cron != "" {
-			cronCount++
-		}
-		triggerCount += len(g.Triggers)
-	}
-	fmt.Printf("  Summary: %d desks, %d groups, %d cron schedules, %d triggers\n",
-		len(project.Desks), len(project.Groups), cronCount, triggerCount)
+	fmt.Printf("  Summary: %d desks, %d groups\n", len(project.Desks), len(project.Groups))
 	fmt.Println("  ✓ Dry-run complete")
 
 	return nil

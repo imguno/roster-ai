@@ -65,7 +65,7 @@ func (s *Server) handleLoad(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	s.hub.Reload(context.Background(), project.Organization, project.Agents, project.Desks, project.Groups, project.Resources, project.Policies)
+	s.hub.Reload(context.Background(), project.Organization, project.Agents, project.Desks, project.Groups, project.Resources)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{

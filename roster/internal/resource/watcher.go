@@ -33,15 +33,12 @@ func (w *Watcher) Events() <-chan types.Event {
 
 // Start begins watching. Blocks until ctx is cancelled.
 // If the resource config has a "path" key, uses filesystem watching (fsnotify).
-// Otherwise falls back to polling with a "check" action.
 func (w *Watcher) Start(ctx context.Context) error {
-	// File-watching mode: config.path is set → watch directory for changes.
 	if watchPath := w.resource.Config["path"]; watchPath != "" {
 		return w.startFileWatch(ctx, watchPath)
 	}
-
-	// Polling mode: run check action on interval.
-	return w.startPolling(ctx)
+	<-ctx.Done()
+	return ctx.Err()
 }
 
 // startFileWatch uses fsnotify to watch a directory for file changes.
@@ -117,45 +114,4 @@ func (w *Watcher) emitFileEvent(filePath string) {
 	}
 }
 
-// startPolling is the original interval-based polling mode.
-func (w *Watcher) startPolling(ctx context.Context) error {
-	interval := parseInterval(w.resource.Interval)
-	if interval < 10*time.Second {
-		interval = 30 * time.Second
-	}
-
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	defer close(w.events)
-
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-			w.poll(ctx)
-		}
-	}
-}
-
-// poll emits watch events for the resource on each tick.
-func (w *Watcher) poll(_ context.Context) {
-	for _, watchType := range w.resource.Watch {
-		w.events <- types.Event{
-			Type:   w.resource.ID + "." + watchType,
-			Source: w.resource.ID,
-		}
-	}
-}
-
-func parseInterval(s string) time.Duration {
-	if s == "" {
-		return 0
-	}
-	d, err := time.ParseDuration(s)
-	if err != nil {
-		return 0
-	}
-	return d
-}
 

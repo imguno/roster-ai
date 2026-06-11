@@ -19,7 +19,6 @@ type Project struct {
 	Desks        map[string]*types.Desk     // key: desk ID
 	Groups       map[string]*types.Group    // key: group ID
 	Resources    map[string]*types.Resource // key: resource ID
-	Policies     map[string]*types.Policy   // key: policy ID
 	SourceFiles  []string                   // all config files loaded
 }
 
@@ -30,7 +29,6 @@ func LoadProject(dir string) (*Project, error) {
 		Desks:     make(map[string]*types.Desk),
 		Groups:    make(map[string]*types.Group),
 		Resources: make(map[string]*types.Resource),
-		Policies:  make(map[string]*types.Policy),
 	}
 
 	if err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
@@ -60,134 +58,8 @@ func LoadProject(dir string) (*Project, error) {
 	if err := p.resolveAgentRefs(dir); err != nil {
 		return nil, err
 	}
-	p.applyGroupDesks()
-	p.applyDefaults()
 	p.bindImplicitAgents()
 	return p, nil
-}
-
-// applyGroupDesks sets desk.Parent for any desk listed in group.Desks that
-// doesn't already have a parent set. This lets groups declare their members
-// inline instead of requiring each desk file to carry a parent: field.
-func (p *Project) applyGroupDesks() {
-	for groupID, group := range p.Groups {
-		for _, deskID := range group.Desks {
-			if desk, ok := p.Desks[deskID]; ok && desk.Parent == "" {
-				desk.Parent = groupID
-			}
-		}
-	}
-}
-
-// applyDefaults applies org-level and group-level defaults to desks.
-// Priority: desk-level config > group defaults > org defaults.
-func (p *Project) applyDefaults() {
-	var orgDefaults *types.DeskDefaults
-	if p.Organization != nil {
-		orgDefaults = p.Organization.Defaults
-	}
-
-	// Build group membership from desk.Parent declarations.
-	deskGroup := map[string]*types.Group{}
-	for _, desk := range p.Desks {
-		if desk.Parent != "" {
-			if g, ok := p.Groups[desk.Parent]; ok {
-				deskGroup[desk.ID] = g
-			}
-		}
-	}
-	// Also map lead desks to their group.
-	for _, g := range p.Groups {
-		if g.Lead != nil {
-			deskGroup[g.Lead.Desk] = g
-		}
-	}
-
-	for id, desk := range p.Desks {
-		var effective types.DeskDefaults
-		if orgDefaults != nil {
-			mergeDefaults(&effective, orgDefaults)
-		}
-		if g, ok := deskGroup[id]; ok && g.Defaults != nil {
-			mergeDefaults(&effective, g.Defaults)
-		}
-
-		if desk.Executor.Type == "" && effective.Executor != nil {
-			desk.Executor.Type = effective.Executor.Type
-			desk.Executor.SDK = effective.Executor.SDK
-			desk.Executor.Address = effective.Executor.Address
-		}
-		if effective.Executor != nil && len(effective.Executor.Params) > 0 {
-			if desk.Executor.Params == nil {
-				desk.Executor.Params = make(map[string]string)
-			}
-			for k, v := range effective.Executor.Params {
-				if _, exists := desk.Executor.Params[k]; !exists {
-					desk.Executor.Params[k] = v
-				}
-			}
-		}
-		if effective.Executor != nil && len(effective.Executor.Env) > 0 {
-			if desk.Executor.Env == nil {
-				desk.Executor.Env = make(map[string]string)
-			}
-			for k, v := range effective.Executor.Env {
-				if _, exists := desk.Executor.Env[k]; !exists {
-					desk.Executor.Env[k] = v
-				}
-			}
-		}
-		if desk.Policy == "" && effective.Policy != "" {
-			desk.Policy = effective.Policy
-		}
-		if len(effective.Tags) > 0 {
-			seen := make(map[string]bool, len(desk.Tags))
-			for _, t := range desk.Tags {
-				seen[t] = true
-			}
-			for _, t := range effective.Tags {
-				if !seen[t] {
-					desk.Tags = append(desk.Tags, t)
-				}
-			}
-		}
-	}
-}
-
-func mergeDefaults(dst, src *types.DeskDefaults) {
-	if dst.Executor == nil && src.Executor != nil {
-		cp := *src.Executor
-		dst.Executor = &cp
-	} else if dst.Executor != nil && src.Executor != nil {
-		if dst.Executor.Type == "" {
-			dst.Executor.Type = src.Executor.Type
-		}
-		if dst.Executor.SDK == "" {
-			dst.Executor.SDK = src.Executor.SDK
-		}
-		for k, v := range src.Executor.Params {
-			if dst.Executor.Params == nil {
-				dst.Executor.Params = make(map[string]string)
-			}
-			if _, exists := dst.Executor.Params[k]; !exists {
-				dst.Executor.Params[k] = v
-			}
-		}
-		for k, v := range src.Executor.Env {
-			if dst.Executor.Env == nil {
-				dst.Executor.Env = make(map[string]string)
-			}
-			if _, exists := dst.Executor.Env[k]; !exists {
-				dst.Executor.Env[k] = v
-			}
-		}
-	}
-	if dst.Policy == "" {
-		dst.Policy = src.Policy
-	}
-	if len(dst.Tags) == 0 {
-		dst.Tags = src.Tags
-	}
 }
 
 // bindImplicitAgents auto-binds desk.Agent when desk name matches an agent ID.
@@ -290,16 +162,6 @@ func (p *Project) loadFile(path string) error {
 			v.ID = fileID(path, types.KindResource)
 		}
 		p.Resources[v.ID] = &v
-
-	case types.KindPolicy:
-		var v types.Policy
-		if err := strictUnmarshal(data, &v); err != nil {
-			return fmt.Errorf("config: parse policy %s: %w", path, err)
-		}
-		if v.ID == "" {
-			v.ID = fileID(path, types.KindPolicy)
-		}
-		p.Policies[v.ID] = &v
 	}
 
 	return nil

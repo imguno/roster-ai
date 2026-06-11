@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/roster-io/roster/pkg/types"
@@ -127,7 +128,12 @@ func resolveNodeBin() string {
 // python and sidesteps PEP 668 externally-managed-environment errors.
 func ensureVenv(ctx context.Context, projectDir, pyBin string) (string, error) {
 	venvDir := filepath.Join(projectDir, ".venv")
+
+	// Windows venv uses Scripts/python.exe; Unix uses bin/python.
 	venvPy := filepath.Join(venvDir, "bin", "python")
+	if runtime.GOOS == "windows" {
+		venvPy = filepath.Join(venvDir, "Scripts", "python.exe")
+	}
 
 	// Already exists — reuse.
 	if _, err := os.Stat(venvPy); err == nil {

@@ -101,6 +101,11 @@ func Execute(ctx context.Context, client proto.AgentServiceClient, task pkgsdk.T
 		req.Env = task.Env
 	}
 
+	// Attach resolved skills (name → prompt content).
+	for name, content := range task.Skills {
+		req.Skills = append(req.Skills, &proto.Skill{Name: name, Content: content})
+	}
+
 	resp, err := client.Execute(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("sdk execute: %w", err)
