@@ -6,7 +6,7 @@ import (
 	"net/http"
 
 	"github.com/roster-io/roster/internal/store/observe"
-	"github.com/roster-io/roster/internal/store/state"
+	"github.com/roster-io/roster/internal/store"
 	"github.com/roster-io/roster/pkg/types"
 )
 
@@ -18,7 +18,7 @@ type HubAPI interface {
 	Reload(ctx context.Context, org *types.Organization, agents map[string]*types.Agent, desks map[string]*types.Desk, groups map[string]*types.Group, resources map[string]*types.Resource, policies map[string]*types.Policy)
 	SubmitHumanInput(deskID, content string) bool
 	DeskArtifact(deskID string) (string, bool)
-	DeskSession(deskID string) ([]state.SessionEntry, bool)
+	DeskSession(deskID string) ([]store.SessionEntry, bool)
 	Desks() map[string]*types.Desk
 	Groups() map[string]*types.Group
 	Resources() map[string]*types.Resource
@@ -27,6 +27,7 @@ type HubAPI interface {
 	Warnings() []types.Warning
 	CancelRun(runID string) bool
 	RecordMetrics(deskID string, metrics map[string]float64)
+	GetMetrics(deskID string) map[string]map[string]float64
 	CronStatus() []types.CronInfo
 	BudgetStatus() map[string]float64
 }

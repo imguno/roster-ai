@@ -9,12 +9,13 @@ import (
 	"github.com/roster-io/roster/proto"
 )
 
-// Result holds the artifact, emissions, logs, and note updates from an SDK execution.
+// Result holds the artifact, emissions, logs, note updates, and metrics from an SDK execution.
 type Result struct {
 	Artifact    *types.Artifact
 	Emissions   []*proto.EmitEvent
 	Logs        []*proto.LogEntry
 	NoteUpdates []*proto.NoteUpdate
+	Metrics     map[string]float64
 }
 
 // ExecuteResource calls an SDK resource action via gRPC.
@@ -114,5 +115,6 @@ func Execute(ctx context.Context, client proto.AgentServiceClient, task pkgsdk.T
 		Emissions:   resp.Emissions,
 		Logs:        resp.Logs,
 		NoteUpdates: resp.NoteUpdates,
+		Metrics:     resp.Metrics,
 	}, nil
 }

@@ -9,7 +9,7 @@ import (
 	"github.com/roster-io/roster/internal/store/observe"
 	"github.com/roster-io/roster/internal/event/routing"
 	"github.com/roster-io/roster/internal/agent/skill"
-	"github.com/roster-io/roster/internal/store/state"
+	"github.com/roster-io/roster/internal/store/memory"
 	"github.com/roster-io/roster/pkg/sdk"
 	"github.com/roster-io/roster/pkg/types"
 )
@@ -30,7 +30,7 @@ func (f *fakeDispatcher) Dispatch(ctx context.Context, t types.ExecutorType, tas
 }
 
 func newTestHub(t *testing.T, dispatcher *fakeDispatcher) *Hub {
-	store := state.NewMemoryStore()
+	store := memory.New()
 	recorder := observe.NewRecorder()
 	resolver := skill.NewResolver(".")
 	h := New(dispatcher, store, resolver, recorder)

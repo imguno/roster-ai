@@ -25,7 +25,8 @@ import (
 	"github.com/roster-io/roster/internal/exec/runner"
 	runnerapi "github.com/roster-io/roster/internal/exec/runner/api"
 	"github.com/roster-io/roster/internal/agent/skill"
-	"github.com/roster-io/roster/internal/store/state"
+	"github.com/roster-io/roster/internal/store/factory"
+	filestore "github.com/roster-io/roster/internal/store/file"
 	"github.com/roster-io/roster/internal/validate"
 	"github.com/roster-io/roster/internal/web"
 	"github.com/roster-io/roster/pkg/types"
@@ -157,7 +158,7 @@ func startHub(ctx context.Context, dir, uiAddr, storeBackend, pythonBin, nodeBin
 		storeCfg.Backend = storeBackend
 	}
 
-	store, err := state.NewStore(storeCfg, dir)
+	store, err := factory.New(storeCfg, dir)
 	if err != nil {
 		return fmt.Errorf("state store: %w", err)
 	}
@@ -215,7 +216,7 @@ func startHub(ctx context.Context, dir, uiAddr, storeBackend, pythonBin, nodeBin
 
 		// Re-create store if org config specifies a different backend.
 		if project.Organization != nil && project.Organization.Store.Backend != "" && storeBackend == "" {
-			if newStore, err := state.NewStore(project.Organization.Store, dir); err == nil {
+			if newStore, err := factory.New(project.Organization.Store, dir); err == nil {
 				store = newStore
 				// Rebuild hub with new store.
 				h = hub.New(reg, store, resolver, recorder)
@@ -1877,7 +1878,7 @@ func runSummarize(args []string) error {
 	}
 
 	dataDir := filepath.Join(dir, ".roster", "data")
-	store, err := state.NewFileStore(dataDir)
+	store, err := filestore.New(dataDir)
 	if err != nil {
 		return fmt.Errorf("state store: %w", err)
 	}

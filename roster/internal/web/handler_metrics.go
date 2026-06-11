@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"sort"
-
-	"github.com/roster-io/roster/internal/store/observe"
 )
 
 // handleMetrics handles both reporting and querying metrics.
@@ -52,55 +50,17 @@ func (s *Server) postMetrics(w http.ResponseWriter, r *http.Request) {
 
 // deskMetricsSummary holds aggregated metrics for one desk.
 type deskMetricsSummary struct {
-	DeskID  string             `json:"desk_id"`
-	Runs    int                `json:"runs"`
-	Totals  map[string]float64 `json:"totals"`
+	DeskID string             `json:"desk_id"`
+	Totals map[string]float64 `json:"totals"`
 }
 
 func (s *Server) getMetrics(w http.ResponseWriter, r *http.Request) {
 	filterDesk := r.URL.Query().Get("desk")
-	events := s.hub.Events()
+	all := s.hub.GetMetrics(filterDesk)
 
-	// Aggregate metrics per desk from all events that carry them.
-	agg := map[string]*deskMetricsSummary{}
-	for _, ev := range events {
-		id := ev.StepID
-		if id == "" {
-			continue
-		}
-		if filterDesk != "" && id != filterDesk {
-			continue
-		}
-
-		// Count runs.
-		if ev.Type == observe.EventStepCompleted {
-			if _, ok := agg[id]; !ok {
-				agg[id] = &deskMetricsSummary{DeskID: id, Totals: map[string]float64{}}
-			}
-			agg[id].Runs++
-			// Built-in token metrics.
-			if ev.InputTokens > 0 {
-				agg[id].Totals["input_tokens"] += float64(ev.InputTokens)
-			}
-			if ev.OutputTokens > 0 {
-				agg[id].Totals["output_tokens"] += float64(ev.OutputTokens)
-			}
-		}
-
-		// Custom metrics from any event.
-		if len(ev.Metrics) > 0 {
-			if _, ok := agg[id]; !ok {
-				agg[id] = &deskMetricsSummary{DeskID: id, Totals: map[string]float64{}}
-			}
-			for k, v := range ev.Metrics {
-				agg[id].Totals[k] += v
-			}
-		}
-	}
-
-	result := make([]*deskMetricsSummary, 0, len(agg))
-	for _, s := range agg {
-		result = append(result, s)
+	result := make([]*deskMetricsSummary, 0, len(all))
+	for id, totals := range all {
+		result = append(result, &deskMetricsSummary{DeskID: id, Totals: totals})
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].DeskID < result[j].DeskID })
 

@@ -21,7 +21,7 @@ import (
 	"github.com/roster-io/roster/internal/exec/sdkproc"
 	"github.com/roster-io/roster/internal/session"
 	"github.com/roster-io/roster/internal/agent/skill"
-	"github.com/roster-io/roster/internal/store/state"
+	"github.com/roster-io/roster/internal/store"
 	"github.com/roster-io/roster/pkg/sdk"
 	"github.com/roster-io/roster/pkg/types"
 )
@@ -36,7 +36,7 @@ type Dispatcher interface {
 // Queues persist to disk — on restart, unfinished work resumes.
 type Hub struct {
 	registry Dispatcher
-	store    state.Store
+	store    store.Store
 	skills   *skill.Resolver
 	sessions *session.Manager
 	bus      *event.Bus
@@ -67,7 +67,7 @@ type Hub struct {
 	sdkProcs *sdkproc.ProcessManager
 }
 
-func New(registry Dispatcher, store state.Store, skills *skill.Resolver, recorder *observe.Recorder) *Hub {
+func New(registry Dispatcher, store store.Store, skills *skill.Resolver, recorder *observe.Recorder) *Hub {
 	return &Hub{
 		registry:    registry,
 		store:       store,
@@ -509,13 +509,37 @@ func (h *Hub) SetQueueDir(dir string)                  { h.queueDir = dir }
 func (h *Hub) Events() []observe.Event                        { return h.recorder.Events() }
 func (h *Hub) Subscribe() (chan observe.Event, func())         { return h.recorder.Subscribe() }
 
-// RecordMetrics records arbitrary metrics for a desk/step, reported by external tools or scripts.
-func (h *Hub) RecordMetrics(deskID string, metrics map[string]float64) {
+// RecordMetrics persists metrics for a single execution to the store and the event recorder.
+func (h *Hub) RecordMetrics(deskID string, m map[string]float64) {
+	h.recordMetricsFull("", deskID, "", m)
+}
+
+func (h *Hub) recordMetricsFull(runID, deskID, agentID string, m map[string]float64) {
 	h.recorder.Record(observe.Event{
 		StepID:  deskID,
 		Type:    observe.EventType("metrics.reported"),
-		Metrics: metrics,
+		Metrics: m,
 	})
+	for name, value := range m {
+		_ = h.store.Metrics().Record(runID, deskID, agentID, name, value)
+	}
+}
+
+// GetMetrics returns aggregated metric totals by desk from the store.
+// If deskID is empty, all desks are returned.
+func (h *Hub) GetMetrics(deskID string) map[string]map[string]float64 {
+	rows, err := h.store.Metrics().SumByDesk(deskID)
+	if err != nil {
+		return nil
+	}
+	out := make(map[string]map[string]float64)
+	for _, r := range rows {
+		if out[r.DeskID] == nil {
+			out[r.DeskID] = make(map[string]float64)
+		}
+		out[r.DeskID][r.Name] = r.Value
+	}
+	return out
 }
 
 func (h *Hub) Desks() map[string]*types.Desk {
@@ -948,7 +972,7 @@ func (h *Hub) runGroupDesk(ctx context.Context, runID, groupID, deskID string, i
 		if err != nil {
 			return nil, err
 		}
-		sess.Post(state.Message{DeskID: deskID, Role: "user", Content: string(artifact.Payload)})
+		sess.Post(store.Message{DeskID: deskID, Role: "user", Content: string(artifact.Payload)})
 		h.store.Desk().Save(deskID, artifact)
 		return artifact, nil
 	}
@@ -963,7 +987,7 @@ func (h *Hub) runGroupDesk(ctx context.Context, runID, groupID, deskID string, i
 			h.recorder.Record(observe.Event{RunID: runID, StepID: deskID, Type: observe.EventType("step.skipped")})
 			return nil, nil
 		}
-		sess.Post(state.Message{DeskID: deskID, Role: "assistant", Content: string(artifact.Payload)})
+		sess.Post(store.Message{DeskID: deskID, Role: "assistant", Content: string(artifact.Payload)})
 		h.store.Desk().Save(deskID, artifact)
 	}
 	return artifact, nil
@@ -1136,11 +1160,15 @@ func (h *Hub) executeDesk(ctx context.Context, runID, deskID, groupID, eventType
 				Payload: em.Payload,
 			})
 		}
+		// Record metrics reported by the SDK agent.
+		if len(result.Metrics) > 0 {
+			h.recordMetricsFull(runID, deskID, task.AgentID, result.Metrics)
+		}
 		// Save step/result logs to session for dashboard display.
 		if len(result.Logs) > 0 && desk.Parent != "" {
 			if sess := h.sessions.Get(desk.Parent); sess != nil {
 				for _, l := range result.Logs {
-					_ = sess.Post(state.Message{
+					_ = sess.Post(store.Message{
 						DeskID:  deskID,
 						Role:    "agent",
 						Type:    l.Type,
@@ -1254,10 +1282,10 @@ func (h *Hub) executeDesk(ctx context.Context, runID, deskID, groupID, eventType
 	}
 
 	if prompt != "" {
-		h.store.DeskSession().Append(deskID, runID, state.SessionEntry{Role: "user", Content: prompt, At: started})
+		h.store.DeskSession().Append(deskID, runID, store.SessionEntry{Role: "user", Content: prompt, At: started})
 	}
 	if artifact != nil && len(artifact.Payload) > 0 {
-		h.store.DeskSession().Append(deskID, runID, state.SessionEntry{Role: "assistant", Content: string(artifact.Payload), At: time.Now()})
+		h.store.DeskSession().Append(deskID, runID, store.SessionEntry{Role: "assistant", Content: string(artifact.Payload), At: time.Now()})
 
 		// Extract and save knowhow from the result.
 		if kh := knowhow.Extract(string(artifact.Payload)); kh != "" {
@@ -1345,7 +1373,7 @@ func (h *Hub) waitHumanInput(ctx context.Context, deskID string) (*types.Artifac
 }
 
 // DeskSession returns the session history for a desk (most recent entries first).
-func (h *Hub) DeskSession(deskID string) ([]state.SessionEntry, bool) {
+func (h *Hub) DeskSession(deskID string) ([]store.SessionEntry, bool) {
 	h.mu.RLock()
 	_, known := h.desks[deskID]
 	h.mu.RUnlock()

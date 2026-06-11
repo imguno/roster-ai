@@ -1,4 +1,4 @@
-package state
+package store
 
 import (
 	"time"
@@ -13,24 +13,7 @@ type Store interface {
 	Group() GroupStore
 	Run() RunStore
 	Notes() NoteStore
-}
-
-// NoteStore persists key-value notes for a desk or group.
-// Notes are mutable and survive across runs (unlike session history).
-type NoteStore interface {
-	Set(scopeID, key string, value []byte)
-	Get(scopeID, key string) ([]byte, bool)
-	Delete(scopeID, key string)
-	All(scopeID string) map[string][]byte
-}
-
-// RunStore persists per-desk checkpoints within a group run so that
-// interrupted group executions can skip already-completed desks on restart.
-type RunStore interface {
-	// SaveStep persists an artifact for a completed desk step.
-	SaveStep(runID, groupID, deskID string, artifact *types.Artifact)
-	// LoadStep retrieves a previously saved artifact, or returns false if not found.
-	LoadStep(runID, groupID, deskID string) (*types.Artifact, bool)
+	Metrics() MetricStore
 }
 
 // DeskStore persists output artifacts for a desk.
@@ -41,11 +24,8 @@ type DeskStore interface {
 
 // DeskSessionStore persists a desk's working conversation history.
 type DeskSessionStore interface {
-	// Append adds an entry to the session for the given desk and run.
-	// Each runID produces a separate file, enabling per-task context isolation.
 	Append(deskID, runID string, entry SessionEntry)
 	Load(deskID string) []SessionEntry
-	// Summarize replaces history with a compact summary, keeping it from growing unbounded.
 	Summarize(deskID string, summary string)
 }
 
@@ -54,6 +34,28 @@ type GroupStore interface {
 	Append(groupID string, msg Message) error
 	History(groupID string) ([]Message, error)
 	Clear(groupID string)
+}
+
+// RunStore persists per-desk checkpoints within a group run.
+type RunStore interface {
+	SaveStep(runID, groupID, deskID string, artifact *types.Artifact)
+	LoadStep(runID, groupID, deskID string) (*types.Artifact, bool)
+}
+
+// NoteStore persists key-value notes for a desk or group.
+type NoteStore interface {
+	Set(scopeID, key string, value []byte)
+	Get(scopeID, key string) ([]byte, bool)
+	Delete(scopeID, key string)
+	All(scopeID string) map[string][]byte
+}
+
+// MetricStore persists agent execution metrics.
+type MetricStore interface {
+	Record(runID, deskID, agentID, name string, value float64) error
+	SumByAgent(agentID string) ([]MetricRow, error)
+	SumByDesk(deskID string) ([]MetricRow, error)
+	SumByRun(runID string) ([]MetricRow, error)
 }
 
 // SessionEntry is one turn in a desk's session history.
@@ -66,8 +68,17 @@ type SessionEntry struct {
 // Message is a unit of communication in a group shared space.
 type Message struct {
 	DeskID  string `json:"desk_id"`
-	Role    string `json:"role"`    // "agent" | "user"
-	Type    string `json:"type"`    // "step" | "result"
+	Role    string `json:"role"`
+	Type    string `json:"type"`
 	Content string `json:"content"`
 	Payload []byte `json:"payload,omitempty"`
+}
+
+// MetricRow is one aggregated metric result.
+type MetricRow struct {
+	RunID   string  `json:"run_id,omitempty"`
+	DeskID  string  `json:"desk_id,omitempty"`
+	AgentID string  `json:"agent_id,omitempty"`
+	Name    string  `json:"name"`
+	Value   float64 `json:"value"`
 }

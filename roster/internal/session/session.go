@@ -3,7 +3,7 @@ package session
 import (
 	"sync"
 
-	"github.com/roster-io/roster/internal/store/state"
+	"github.com/roster-io/roster/internal/store"
 )
 
 // Session is the shared communication space auto-created when a group is activated.
@@ -11,14 +11,14 @@ import (
 // Sessions are managed by the Manager; user YAML never references them directly.
 type Session struct {
 	groupID string
-	store   state.GroupStore
+	store   store.GroupStore
 }
 
-func (s *Session) Post(msg state.Message) error {
+func (s *Session) Post(msg store.Message) error {
 	return s.store.Append(s.groupID, msg)
 }
 
-func (s *Session) History() ([]state.Message, error) {
+func (s *Session) History() ([]store.Message, error) {
 	return s.store.History(s.groupID)
 }
 
@@ -29,11 +29,11 @@ func (s *Session) Close() {
 // Manager creates and destroys Sessions for groups.
 type Manager struct {
 	mu       sync.Mutex
-	store    state.GroupStore
+	store    store.GroupStore
 	sessions map[string]*Session // key: groupID
 }
 
-func NewManager(store state.GroupStore) *Manager {
+func NewManager(store store.GroupStore) *Manager {
 	return &Manager{
 		store:    store,
 		sessions: make(map[string]*Session),
