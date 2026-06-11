@@ -1046,12 +1046,23 @@ func (h *Hub) executeDesk(ctx context.Context, runID, deskID, groupID, eventType
 	agent := h.agents[desk.Agent.ID]
 
 	var prompt string
-	if agent != nil {
-		p, err := skill.BuildPrompt(ctx, h.skills, agent.Skills, agent.Knowhow, input)
-		if err != nil {
-			return nil, fmt.Errorf("hub: desk %s: %w", deskID, err)
+	{
+		var skills []string
+		if agent != nil {
+			skills = append(skills, agent.Skills...)
 		}
-		prompt = p
+		skills = append(skills, desk.Skills...)
+		var knowhow []string
+		if agent != nil {
+			knowhow = agent.Knowhow
+		}
+		if len(skills) > 0 || len(knowhow) > 0 {
+			p, err := skill.BuildPrompt(ctx, h.skills, skills, knowhow, input)
+			if err != nil {
+				return nil, fmt.Errorf("hub: desk %s: %w", deskID, err)
+			}
+			prompt = p
+		}
 	}
 
 	options := make(map[string]string, len(desk.Executor.Params)+1)
@@ -1428,6 +1439,17 @@ func (h *Hub) Warnings() []types.Warning {
 					Level:   "info",
 					Source:  "agent:" + id,
 					Message: fmt.Sprintf("knowhow %q not found (will accumulate over time)", ref),
+				})
+			}
+		}
+	}
+	for id, desk := range h.desks {
+		for _, ref := range desk.Skills {
+			if _, err := h.skills.Resolve(ctx, ref); err != nil {
+				warnings = append(warnings, types.Warning{
+					Level:   "warn",
+					Source:  "desk:" + id,
+					Message: fmt.Sprintf("skill %q not found", ref),
 				})
 			}
 		}

@@ -19,6 +19,7 @@ type Desk struct {
 	Emit      []string `yaml:"emit,omitempty" json:"emit,omitempty"`
 	Cron      string   `yaml:"cron,omitempty" json:"cron,omitempty"`
 
+	Skills    []string        `yaml:"skills,omitempty" json:"skills,omitempty"`
 	Resources []string        `yaml:"resources,omitempty" json:"resources,omitempty"`
 	Tags      []string        `yaml:"tags,omitempty" json:"tags,omitempty"`
 	Policy    string          `yaml:"policy,omitempty" json:"policy,omitempty"`

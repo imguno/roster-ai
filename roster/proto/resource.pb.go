@@ -2,7 +2,7 @@
 // versions:
 // 	protoc-gen-go v1.36.11
 // 	protoc        v7.35.0
-// source: proto/resource.proto
+// source: resource.proto
 
 package proto
 
@@ -32,7 +32,7 @@ type ResourceActionRequest struct {
 
 func (x *ResourceActionRequest) Reset() {
 	*x = ResourceActionRequest{}
-	mi := &file_proto_resource_proto_msgTypes[0]
+	mi := &file_resource_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -44,7 +44,7 @@ func (x *ResourceActionRequest) String() string {
 func (*ResourceActionRequest) ProtoMessage() {}
 
 func (x *ResourceActionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_resource_proto_msgTypes[0]
+	mi := &file_resource_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -57,7 +57,7 @@ func (x *ResourceActionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResourceActionRequest.ProtoReflect.Descriptor instead.
 func (*ResourceActionRequest) Descriptor() ([]byte, []int) {
-	return file_proto_resource_proto_rawDescGZIP(), []int{0}
+	return file_resource_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *ResourceActionRequest) GetResourceId() string {
@@ -91,7 +91,7 @@ type ResourceActionResponse struct {
 
 func (x *ResourceActionResponse) Reset() {
 	*x = ResourceActionResponse{}
-	mi := &file_proto_resource_proto_msgTypes[1]
+	mi := &file_resource_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -103,7 +103,7 @@ func (x *ResourceActionResponse) String() string {
 func (*ResourceActionResponse) ProtoMessage() {}
 
 func (x *ResourceActionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_resource_proto_msgTypes[1]
+	mi := &file_resource_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -116,7 +116,7 @@ func (x *ResourceActionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResourceActionResponse.ProtoReflect.Descriptor instead.
 func (*ResourceActionResponse) Descriptor() ([]byte, []int) {
-	return file_proto_resource_proto_rawDescGZIP(), []int{1}
+	return file_resource_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *ResourceActionResponse) GetOutput() []byte {
@@ -133,11 +133,11 @@ func (x *ResourceActionResponse) GetError() string {
 	return ""
 }
 
-var File_proto_resource_proto protoreflect.FileDescriptor
+var File_resource_proto protoreflect.FileDescriptor
 
-const file_proto_resource_proto_rawDesc = "" +
+const file_resource_proto_rawDesc = "" +
 	"\n" +
-	"\x14proto/resource.proto\x12\x12roster.resource.v1\"\xda\x01\n" +
+	"\x0eresource.proto\x12\x12roster.resource.v1\"\xda\x01\n" +
 	"\x15ResourceActionRequest\x12\x1f\n" +
 	"\vresource_id\x18\x01 \x01(\tR\n" +
 	"resourceId\x12\x16\n" +
@@ -153,24 +153,24 @@ const file_proto_resource_proto_rawDesc = "" +
 	"\rExecuteAction\x12).roster.resource.v1.ResourceActionRequest\x1a*.roster.resource.v1.ResourceActionResponseB#Z!github.com/roster-io/roster/protob\x06proto3"
 
 var (
-	file_proto_resource_proto_rawDescOnce sync.Once
-	file_proto_resource_proto_rawDescData []byte
+	file_resource_proto_rawDescOnce sync.Once
+	file_resource_proto_rawDescData []byte
 )
 
-func file_proto_resource_proto_rawDescGZIP() []byte {
-	file_proto_resource_proto_rawDescOnce.Do(func() {
-		file_proto_resource_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_proto_resource_proto_rawDesc), len(file_proto_resource_proto_rawDesc)))
+func file_resource_proto_rawDescGZIP() []byte {
+	file_resource_proto_rawDescOnce.Do(func() {
+		file_resource_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_resource_proto_rawDesc), len(file_resource_proto_rawDesc)))
 	})
-	return file_proto_resource_proto_rawDescData
+	return file_resource_proto_rawDescData
 }
 
-var file_proto_resource_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
-var file_proto_resource_proto_goTypes = []any{
+var file_resource_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_resource_proto_goTypes = []any{
 	(*ResourceActionRequest)(nil),  // 0: roster.resource.v1.ResourceActionRequest
 	(*ResourceActionResponse)(nil), // 1: roster.resource.v1.ResourceActionResponse
 	nil,                            // 2: roster.resource.v1.ResourceActionRequest.ParamsEntry
 }
-var file_proto_resource_proto_depIdxs = []int32{
+var file_resource_proto_depIdxs = []int32{
 	2, // 0: roster.resource.v1.ResourceActionRequest.params:type_name -> roster.resource.v1.ResourceActionRequest.ParamsEntry
 	0, // 1: roster.resource.v1.ResourceService.ExecuteAction:input_type -> roster.resource.v1.ResourceActionRequest
 	1, // 2: roster.resource.v1.ResourceService.ExecuteAction:output_type -> roster.resource.v1.ResourceActionResponse
@@ -181,26 +181,26 @@ var file_proto_resource_proto_depIdxs = []int32{
 	0, // [0:1] is the sub-list for field type_name
 }
 
-func init() { file_proto_resource_proto_init() }
-func file_proto_resource_proto_init() {
-	if File_proto_resource_proto != nil {
+func init() { file_resource_proto_init() }
+func file_resource_proto_init() {
+	if File_resource_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_resource_proto_rawDesc), len(file_proto_resource_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_resource_proto_rawDesc), len(file_resource_proto_rawDesc)),
 			NumEnums:      0,
 			NumMessages:   3,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
-		GoTypes:           file_proto_resource_proto_goTypes,
-		DependencyIndexes: file_proto_resource_proto_depIdxs,
-		MessageInfos:      file_proto_resource_proto_msgTypes,
+		GoTypes:           file_resource_proto_goTypes,
+		DependencyIndexes: file_resource_proto_depIdxs,
+		MessageInfos:      file_resource_proto_msgTypes,
 	}.Build()
-	File_proto_resource_proto = out.File
-	file_proto_resource_proto_goTypes = nil
-	file_proto_resource_proto_depIdxs = nil
+	File_resource_proto = out.File
+	file_resource_proto_goTypes = nil
+	file_resource_proto_depIdxs = nil
 }

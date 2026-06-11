@@ -50,6 +50,8 @@ func (p *pythonProcess) Start(ctx context.Context) error {
 	)
 	p.cmd.Stdout = os.Stdout
 	p.cmd.Stderr = os.Stderr
+	// Prevent gRPC fork handler crash when agents spawn subprocesses.
+	p.cmd.Env = append(os.Environ(), "GRPC_ENABLE_FORK_SUPPORT=0")
 	if err := p.cmd.Start(); err != nil {
 		return fmt.Errorf("python sdk start: %w", err)
 	}
@@ -137,10 +139,29 @@ func (m *ProcessManager) SetNodeBin(bin string)    { m.nodeBin = bin }
 func (m *ProcessManager) SetProjectDir(dir string) { m.projectDir = dir }
 
 // EnsureSDK installs missing SDK packages and auto-configures the runtime bin.
+// It automatically creates a .venv in the project directory for Python SDKs
+// and pre-installs local dependencies that won't be found on PyPI.
 func (m *ProcessManager) EnsureSDK(ctx context.Context, agents map[string]*types.Agent, resources map[string]*types.Resource) error {
 	refs := collectRefs(agents, resources)
 	if len(refs) == 0 {
 		return nil
+	}
+
+	// Check if any ref needs Python — if so, set up a venv first.
+	needsPython := false
+	for _, r := range refs {
+		if r.prefix == "pip" || r.prefix == "git" || r.prefix == "local" {
+			needsPython = true
+			break
+		}
+	}
+	if needsPython && m.projectDir != "" {
+		basePy := m.effectivePythonBin("")
+		venvPy, err := ensureVenv(ctx, m.projectDir, basePy)
+		if err != nil {
+			return err
+		}
+		m.pythonBin = venvPy
 	}
 
 	for _, r := range refs {
@@ -171,6 +192,10 @@ func (m *ProcessManager) EnsureSDK(ctx context.Context, agents map[string]*types
 		case "local":
 			pyBin := m.effectivePythonBin(r.pyVer)
 			localPath := resolvePath(m.projectDir, r.pkg)
+			// Pre-install local dependencies (e.g. roster-sdk) before the package itself.
+			if err := installLocalDeps(ctx, pyBin, localPath, m.projectDir); err != nil {
+				return err
+			}
 			if err := localInstall(ctx, pyBin, localPath); err != nil {
 				return err
 			}
@@ -208,7 +233,9 @@ func (m *ProcessManager) GetOrStart(ctx context.Context) (proto.AgentServiceClie
 		return nil, fmt.Errorf("sdk: no runtime configured (set sdk: in agent/resource config)")
 	}
 
-	if err := proc.Start(ctx); err != nil {
+	// Use background context for the long-lived SDK process — it must not be
+	// tied to any individual desk execution context or policy timeout.
+	if err := proc.Start(context.Background()); err != nil {
 		return nil, fmt.Errorf("sdk: start process: %w", err)
 	}
 

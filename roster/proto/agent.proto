@@ -19,6 +19,8 @@ message TaskRequest {
   repeated Note     notes     = 6;
   repeated Message  session   = 7;
   repeated Resource resources = 8;
+  map<string, string> options = 9;  // executor params from desk config
+  map<string, string> env     = 10; // executor env from desk config
 }
 
 message TaskResponse {

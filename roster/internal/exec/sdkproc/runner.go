@@ -42,9 +42,18 @@ func Execute(ctx context.Context, client proto.AgentServiceClient, task pkgsdk.T
 		eventType = task.Options["event_type"]
 	}
 
+	// Build the event payload: use the prompt (skills + input) if available,
+	// otherwise fall back to the raw input artifact payload.
+	var payload []byte
+	if task.Prompt != "" {
+		payload = []byte(task.Prompt)
+	} else if task.Input != nil {
+		payload = task.Input.Payload
+	}
+
 	req := &proto.TaskRequest{
 		EventType:    eventType,
-		EventPayload: task.Input.Payload,
+		EventPayload: payload,
 		DeskId:       task.DeskID,
 		AgentId:      task.AgentID,
 		GroupId:      task.GroupID,
@@ -84,6 +93,14 @@ func Execute(ctx context.Context, client proto.AgentServiceClient, task pkgsdk.T
 		req.Resources = append(req.Resources, res)
 	}
 
+	// Attach executor options and env.
+	if len(task.Options) > 0 {
+		req.Options = task.Options
+	}
+	if len(task.Env) > 0 {
+		req.Env = task.Env
+	}
+
 	resp, err := client.Execute(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("sdk execute: %w", err)
@@ -99,19 +116,19 @@ func Execute(ctx context.Context, client proto.AgentServiceClient, task pkgsdk.T
 		}
 	}
 
-	var payload []byte
+	var resultPayload []byte
 	for _, em := range resp.Emissions {
 		if em.Payload != nil {
-			payload = em.Payload
+			resultPayload = em.Payload
 			break
 		}
 	}
-	if payload == nil {
-		payload = []byte("ok")
+	if resultPayload == nil {
+		resultPayload = []byte("ok")
 	}
 
 	return &Result{
-		Artifact:    &types.Artifact{Schema: "sdk-v1", Payload: payload},
+		Artifact:    &types.Artifact{Schema: "sdk-v1", Payload: resultPayload},
 		Emissions:   resp.Emissions,
 		Logs:        resp.Logs,
 		NoteUpdates: resp.NoteUpdates,

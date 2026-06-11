@@ -13,10 +13,10 @@ import (
 
 // sdkRef holds a parsed sdk: field value.
 type sdkRef struct {
-	prefix  string // "pip", "npm", "git", "local"
-	pkg     string // package name, git URL, or local path
-	pyVer   string // optional Python version, pip/local only
-	gitRef  string // optional git ref, git only
+	prefix string // "pip", "npm", "git", "local"
+	pkg    string // package name, git URL, or local path
+	pyVer  string // optional Python version, pip/local only
+	gitRef string // optional git ref, git only
 }
 
 // parseRef parses sdk: field values like "pip:roster-sdk", "local:./path", etc.
@@ -98,13 +98,16 @@ func resolvePath(projectDir, path string) string {
 	return path
 }
 
+// resolvePythonBin finds Python >= 3.11 by trying versioned names first,
+// then falling back to python3/python.
 func resolvePythonBin(ver string) string {
 	if ver != "" {
 		if path, err := exec.LookPath("python" + ver); err == nil {
 			return path
 		}
 	}
-	for _, name := range []string{"python3", "python"} {
+	// Prefer higher versions that meet the >=3.11 requirement.
+	for _, name := range []string{"python3.13", "python3.12", "python3.11", "python3", "python"} {
 		if path, err := exec.LookPath(name); err == nil {
 			return path
 		}
@@ -117,6 +120,158 @@ func resolveNodeBin() string {
 		return path
 	}
 	return "node"
+}
+
+// ensureVenv creates a .venv in projectDir if it doesn't exist and returns
+// the path to the venv's python binary.  This avoids polluting the system
+// python and sidesteps PEP 668 externally-managed-environment errors.
+func ensureVenv(ctx context.Context, projectDir, pyBin string) (string, error) {
+	venvDir := filepath.Join(projectDir, ".venv")
+	venvPy := filepath.Join(venvDir, "bin", "python")
+
+	// Already exists — reuse.
+	if _, err := os.Stat(venvPy); err == nil {
+		return venvPy, nil
+	}
+
+	fmt.Printf("[sdk] creating venv at %s (using %s)\n", venvDir, pyBin)
+	cmd := exec.CommandContext(ctx, pyBin, "-m", "venv", venvDir)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("sdk: create venv: %w", err)
+	}
+	return venvPy, nil
+}
+
+// installLocalDeps reads a local package's pyproject.toml and pre-installs
+// any dependencies that look like sibling local packages (e.g. roster-sdk)
+// which won't be found on PyPI.  It searches projectDir's parent for
+// directories whose pyproject.toml defines a matching package name.
+func installLocalDeps(ctx context.Context, pyBin, pkgDir, projectDir string) error {
+	toml, err := os.ReadFile(filepath.Join(pkgDir, "pyproject.toml"))
+	if err != nil {
+		return nil // no pyproject.toml — skip
+	}
+	deps := parseDeps(string(toml))
+	if len(deps) == 0 {
+		return nil
+	}
+
+	// Search for sibling directories that provide the required packages.
+	parentDir := filepath.Dir(projectDir)
+	entries, err := os.ReadDir(parentDir)
+	if err != nil {
+		return nil
+	}
+
+	// Build a map: package-name → directory path.
+	siblingPkgs := map[string]string{}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		sibDir := filepath.Join(parentDir, e.Name())
+		sibToml, err := os.ReadFile(filepath.Join(sibDir, "pyproject.toml"))
+		if err != nil {
+			continue
+		}
+		if name := parsePkgName(string(sibToml)); name != "" {
+			siblingPkgs[name] = sibDir
+		}
+	}
+
+	for _, dep := range deps {
+		if dir, ok := siblingPkgs[dep]; ok {
+			if err := localInstall(ctx, pyBin, dir); err != nil {
+				return fmt.Errorf("sdk: pre-install dep %s: %w", dep, err)
+			}
+		}
+	}
+	return nil
+}
+
+// parseDeps extracts dependency names from pyproject.toml's dependencies list.
+// Minimal parser — handles the common case: dependencies = ["pkg-name", "pkg>=1.0"].
+func parseDeps(toml string) []string {
+	inDeps := false
+	var deps []string
+	for _, line := range strings.Split(toml, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "dependencies") && strings.Contains(trimmed, "=") {
+			inDeps = true
+			// Handle single-line: dependencies = ["a", "b"]
+			if idx := strings.Index(trimmed, "["); idx >= 0 {
+				inner := trimmed[idx:]
+				if end := strings.Index(inner, "]"); end >= 0 {
+					for _, d := range parseBracketList(inner[:end+1]) {
+						deps = append(deps, d)
+					}
+					return deps
+				}
+			}
+			continue
+		}
+		if inDeps {
+			if trimmed == "]" {
+				break
+			}
+			if name := extractDepName(trimmed); name != "" {
+				deps = append(deps, name)
+			}
+		}
+	}
+	return deps
+}
+
+// parsePkgName extracts the name = "..." value from [project] in pyproject.toml.
+func parsePkgName(toml string) string {
+	inProject := false
+	for _, line := range strings.Split(toml, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "[project]" {
+			inProject = true
+			continue
+		}
+		if inProject {
+			if strings.HasPrefix(trimmed, "[") {
+				break
+			}
+			if strings.HasPrefix(trimmed, "name") {
+				if idx := strings.Index(trimmed, "="); idx >= 0 {
+					val := strings.TrimSpace(trimmed[idx+1:])
+					return strings.Trim(val, "\"' ")
+				}
+			}
+		}
+	}
+	return ""
+}
+
+func parseBracketList(s string) []string {
+	s = strings.Trim(s, "[]")
+	var items []string
+	for _, part := range strings.Split(s, ",") {
+		if name := extractDepName(strings.TrimSpace(part)); name != "" {
+			items = append(items, name)
+		}
+	}
+	return items
+}
+
+func extractDepName(s string) string {
+	s = strings.Trim(s, "\"', ")
+	if s == "" || s == "]" || s == "[" {
+		return ""
+	}
+	// Strip version specifiers: "roster-sdk>=1.0" → "roster-sdk"
+	for i, c := range s {
+		if c == '>' || c == '<' || c == '=' || c == '!' || c == '~' || c == '[' || c == ';' {
+			s = s[:i]
+			break
+		}
+	}
+	return strings.TrimSpace(s)
 }
 
 func pipInstall(ctx context.Context, pyBin, pkg string) error {
