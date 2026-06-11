@@ -17,6 +17,11 @@ roster/internal/web/dashboard/node_modules/
 # Roster runtime data
 **/.roster/
 
+# SQLite databases
+*.db
+*.sqlite
+*.sqlite3
+
 # Example SDK venvs and output
 examples/**/.venv/
 examples/**/hello-output.txt
