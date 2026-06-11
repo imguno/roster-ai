@@ -17,6 +17,8 @@ import (
 	"github.com/roster-io/roster/internal/observe"
 	"github.com/roster-io/roster/internal/queue"
 	"github.com/roster-io/roster/internal/resource"
+	"github.com/roster-io/roster/internal/routing"
+	"github.com/roster-io/roster/internal/sdkproc"
 	"github.com/roster-io/roster/internal/session"
 	"github.com/roster-io/roster/internal/skill"
 	"github.com/roster-io/roster/internal/state"
@@ -47,7 +49,6 @@ type Hub struct {
 	groups       map[string]*types.Group
 	resources    map[string]*types.Resource
 	policies     map[string]*types.Policy
-	resRegistry  *resource.Registry
 	projectDir   string
 	queueDir     string
 
@@ -63,7 +64,7 @@ type Hub struct {
 
 	budget *BudgetTracker // hierarchical cost tracking (desk → group → org)
 
-	sdkProcs *sdkProcessManager
+	sdkProcs *sdkproc.ProcessManager
 }
 
 func New(registry Dispatcher, store state.Store, skills *skill.Resolver, recorder *observe.Recorder) *Hub {
@@ -85,7 +86,7 @@ func New(registry Dispatcher, store state.Store, skills *skill.Resolver, recorde
 		activeRuns:     make(map[string]context.CancelFunc),
 		cronEntries:    make(map[string]cron.EntryID),
 		budget:         newBudgetTracker(),
-		sdkProcs:       newSDKProcessManager(50100),
+		sdkProcs:       sdkproc.NewProcessManager(50100),
 	}
 }
 
@@ -109,7 +110,6 @@ func (h *Hub) Load(org *types.Organization, agents map[string]*types.Agent, desk
 	for id, p := range policies {
 		h.policies[id] = p
 	}
-	h.resRegistry = resource.NewRegistry(h.resources, h.desks, h.groups)
 }
 
 // Start wires up event subscriptions and starts queue workers.
@@ -143,33 +143,6 @@ func (h *Hub) Start(ctx context.Context) error {
 			h.bus.Subscribe(id, group.Subscribe, func(_ context.Context, ev types.Event) error {
 				h.enqueue(id, ev)
 				return nil
-			})
-		}
-	}
-
-	// Wire resource subscriptions — fire action directly on event (no queue).
-	for id, res := range h.resources {
-		for _, sub := range res.Subscribe {
-			resID := id
-			actionName := sub.Action
-			eventTypes := []string{sub.On}
-			isSDK := res.Executor != nil && res.Executor.Type == types.ExecutorTypeSDK
-			resConfig := res.Config
-			h.bus.Subscribe("resource:"+resID+":"+actionName, eventTypes, func(ctx context.Context, ev types.Event) error {
-				params := map[string]string{"event_payload": string(ev.Payload)}
-				for k, v := range resConfig {
-					params[k] = v
-				}
-				if isSDK {
-					rc, err := h.sdkProcs.GetOrStartResource(ctx)
-					if err != nil {
-						return fmt.Errorf("resource %s: sdk not available: %w", resID, err)
-					}
-					_, err = executeResourceSDK(ctx, rc, resID, actionName, params)
-					return err
-				}
-				_, err := h.resRegistry.ExecuteAction(ctx, resID, actionName, params)
-				return err
 			})
 		}
 	}
@@ -489,8 +462,6 @@ func (h *Hub) Reload(ctx context.Context, org *types.Organization, agents map[st
 	for id, p := range policies {
 		h.policies[id] = p
 	}
-	h.resRegistry = resource.NewRegistry(h.resources, h.desks, h.groups)
-
 	// Collect queue IDs before releasing the lock.
 	allQueues := make([]string, 0, len(h.queues))
 	for id := range h.queues {
@@ -728,7 +699,7 @@ func (h *Hub) runGroupActor(ctx context.Context, groupID string, group *types.Gr
 		payload = result.Payload
 	}
 	for _, emitType := range group.Emit {
-		actualType := DetermineEventType(emitType, payload)
+		actualType := routing.DetermineEventType(emitType, payload)
 		h.bus.PublishAsync(ctx, types.Event{
 			Type:    actualType,
 			Source:  groupID,
@@ -982,13 +953,13 @@ func (h *Hub) runGroupDesk(ctx context.Context, runID, groupID, deskID string, i
 		return artifact, nil
 	}
 
-	artifact, err := h.executeDesk(ctx, runID, deskID, desk, input, sess)
+	artifact, err := h.executeDesk(ctx, runID, deskID, groupID, "", desk, input, sess)
 	if err != nil {
 		return nil, err
 	}
 	if artifact != nil {
 		// Self-governed skip: if output starts with "SKIP", treat as no-op.
-		if isSkip(artifact.Payload) {
+		if routing.IsSkip(artifact.Payload) {
 			h.recorder.Record(observe.Event{RunID: runID, StepID: deskID, Type: observe.EventType("step.skipped")})
 			return nil, nil
 		}
@@ -1009,7 +980,7 @@ func (h *Hub) runDeskActor(ctx context.Context, deskID string, desk *types.Desk,
 
 	h.recorder.Record(observe.Event{RunID: runID, StepID: deskID, Type: observe.EventStepStarted})
 
-	artifact, err := h.executeDesk(ctx, runID, deskID, desk, input, nil)
+	artifact, err := h.executeDesk(ctx, runID, deskID, "", ev.Type, desk, input, nil)
 	if err != nil {
 		// Context cancellation means the hub is shutting down or restarting itself
 		// (e.g. upgrade.sh writes a restart marker → syscall.Exec kills in-flight processes).
@@ -1023,7 +994,7 @@ func (h *Hub) runDeskActor(ctx context.Context, deskID string, desk *types.Desk,
 	}
 
 	// Self-governed skip for standalone desks.
-	if artifact != nil && isSkip(artifact.Payload) {
+	if artifact != nil && routing.IsSkip(artifact.Payload) {
 		h.recorder.Record(observe.Event{RunID: runID, StepID: deskID, Type: observe.EventType("step.skipped")})
 		return nil
 	}
@@ -1034,7 +1005,7 @@ func (h *Hub) runDeskActor(ctx context.Context, deskID string, desk *types.Desk,
 		h.store.Desk().Save(deskID, artifact)
 		for _, emitType := range desk.Emit {
 			// Determine the actual event type based on payload content
-			actualType := DetermineEventType(emitType, artifact.Payload)
+			actualType := routing.DetermineEventType(emitType, artifact.Payload)
 			h.bus.PublishAsync(ctx, types.Event{
 				Type:    actualType,
 				Source:  deskID,
@@ -1047,7 +1018,7 @@ func (h *Hub) runDeskActor(ctx context.Context, deskID string, desk *types.Desk,
 }
 
 // executeDesk builds the task and dispatches to the executor.
-func (h *Hub) executeDesk(ctx context.Context, runID, deskID string, desk *types.Desk, input *types.Artifact, groupSession *session.Session, eventType ...string) (*types.Artifact, error) {
+func (h *Hub) executeDesk(ctx context.Context, runID, deskID, groupID, eventType string, desk *types.Desk, input *types.Artifact, groupSession *session.Session) (*types.Artifact, error) {
 	agent := h.agents[desk.Agent.ID]
 
 	var prompt string
@@ -1092,7 +1063,7 @@ func (h *Hub) executeDesk(ctx context.Context, runID, deskID string, desk *types
 		}
 	}
 
-	taskResources, actionCallback := h.resolveResources(ctx, deskID)
+	taskResources := h.resolveResources(deskID)
 
 	execCtx := ctx
 	if desk.Policy != "" {
@@ -1103,10 +1074,19 @@ func (h *Hub) executeDesk(ctx context.Context, runID, deskID string, desk *types
 		}
 	}
 
+	// Load notes for the effective scope (group if inside one, otherwise desk).
+	noteScope := deskID
+	if groupID != "" {
+		noteScope = groupID
+	}
+	notes := h.store.Notes().All(noteScope)
+
 	task := sdk.Task{
 		RunID:          runID,
 		AgentID:        agentID,
 		DeskID:         deskID,
+		GroupID:        groupID,
+		EventType:      eventType,
 		Prompt:         prompt,
 		Input:          input,
 		Options:        options,
@@ -1115,7 +1095,7 @@ func (h *Hub) executeDesk(ctx context.Context, runID, deskID string, desk *types
 		Session:        sessionEntries,
 		GroupHistory:   groupHistory,
 		Resources:      taskResources,
-		ActionCallback: actionCallback,
+		Notes:          notes,
 	}
 
 	started := time.Now()
@@ -1133,16 +1113,21 @@ func (h *Hub) executeDesk(ctx context.Context, runID, deskID string, desk *types
 
 	// SDK executor: use shared gRPC process (entry-point discovery).
 	if desk.Executor.Type == types.ExecutorTypeSDK {
-		if len(eventType) > 0 {
-			task.Options["event_type"] = eventType[0]
-		}
 		client, err := h.sdkProcs.GetOrStart(execCtx)
 		if err != nil {
 			return nil, err
 		}
-		result, err := executeSDK(execCtx, client, task)
+		result, err := sdkproc.Execute(execCtx, client, task)
 		if err != nil {
 			return nil, err
+		}
+		// Apply note updates returned by the SDK agent.
+		for _, u := range result.NoteUpdates {
+			if u.Operation == "delete" {
+				h.store.Notes().Delete(noteScope, u.Key)
+			} else {
+				h.store.Notes().Set(noteScope, u.Key, u.Value)
+			}
 		}
 		// Publish emitted events to the bus.
 		for _, em := range result.Emissions {
@@ -1287,12 +1272,9 @@ func (h *Hub) executeDesk(ctx context.Context, runID, deskID string, desk *types
 	return artifact, nil
 }
 
-// resolveResources collects resources accessible to a desk.
-func (h *Hub) resolveResources(ctx context.Context, deskID string) ([]sdk.TaskResource, func(string, string, map[string]string) (string, error)) {
-	if h.resRegistry == nil {
-		return nil, nil
-	}
-
+// resolveResources collects resources accessible to a desk and returns their config.
+// Resources are pure configuration — the agent handles all interaction itself.
+func (h *Hub) resolveResources(deskID string) []sdk.TaskResource {
 	accessibleIDs := make(map[string]bool)
 
 	if desk, ok := h.desks[deskID]; ok {
@@ -1300,15 +1282,13 @@ func (h *Hub) resolveResources(ctx context.Context, deskID string) ([]sdk.TaskRe
 			accessibleIDs[resID] = true
 		}
 	}
-
-	for gid, group := range h.groups {
+	for gid := range h.groups {
 		if h.deskInGroup(gid, deskID) {
-			for _, resID := range group.Resources {
+			for _, resID := range h.groups[gid].Resources {
 				accessibleIDs[resID] = true
 			}
 		}
 	}
-
 	if h.organization != nil {
 		for _, resID := range h.organization.Resources {
 			accessibleIDs[resID] = true
@@ -1317,44 +1297,27 @@ func (h *Hub) resolveResources(ctx context.Context, deskID string) ([]sdk.TaskRe
 
 	var taskResources []sdk.TaskResource
 	for resID := range accessibleIDs {
-		res, ok := h.resRegistry.Get(resID)
+		res, ok := h.resources[resID]
 		if !ok {
 			continue
 		}
-		actions := h.resRegistry.AvailableActions(resID, deskID)
+		cfg := make(map[string]string, len(res.Config)+2)
+		for k, v := range res.Config {
+			cfg[k] = v
+		}
+		if res.MCP != "" {
+			cfg["mcp"] = res.MCP
+		}
+		if res.Connection != "" {
+			cfg["connection"] = res.Connection
+		}
 		taskResources = append(taskResources, sdk.TaskResource{
-			ID:      resID,
-			Type:    res.Type,
-			Actions: actions,
+			ID:     resID,
+			Type:   res.Type,
+			Config: cfg,
 		})
 	}
-
-	// Inject built-in "roster" resource for desk-to-desk communication.
-	rosterActions := []string{"call", "artifact", "session"}
-	taskResources = append(taskResources, sdk.TaskResource{
-		ID:      "roster",
-		Type:    "roster",
-		Actions: rosterActions,
-	})
-
-	// Use a detached context for action callbacks so they remain callable
-	// after the originating run's context has been cancelled.
-	// The roster resource uses the original ctx so that call() respects timeouts.
-	callback := func(resourceID, action string, params map[string]string) (string, error) {
-		// Built-in roster resource: desk-to-desk communication.
-		if resourceID == "roster" {
-			return h.handleRosterAction(ctx, deskID, action, params)
-		}
-		if !accessibleIDs[resourceID] {
-			return "", fmt.Errorf("desk %q has no access to resource %q", deskID, resourceID)
-		}
-		if err := h.resRegistry.CheckPermission(resourceID, action, deskID); err != nil {
-			return "", err
-		}
-		return h.resRegistry.ExecuteAction(context.Background(), resourceID, action, params)
-	}
-
-	return taskResources, callback
+	return taskResources
 }
 
 

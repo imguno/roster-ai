@@ -200,20 +200,6 @@ func (e *ExecRunner) processStderr(stderrOutput string, task sdk.Task) map[strin
 	for _, line := range strings.Split(stderrOutput, "\n") {
 		line = strings.TrimSpace(line)
 
-		if strings.HasPrefix(line, "ACTION:") && task.ActionCallback != nil {
-			payload := strings.TrimPrefix(line, "ACTION:")
-			var req actionRequest
-			if json.Unmarshal([]byte(payload), &req) != nil {
-				continue
-			}
-			result, err := task.ActionCallback(req.Resource, req.Action, req.Params)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "roster: action %s.%s failed: %v\n", req.Resource, req.Action, err)
-			}
-			_ = result
-			continue
-		}
-
 		if strings.HasPrefix(line, "METRIC:") {
 			payload := strings.TrimPrefix(line, "METRIC:")
 			var m map[string]float64

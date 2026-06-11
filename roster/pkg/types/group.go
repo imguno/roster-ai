@@ -18,7 +18,10 @@ type Group struct {
 	Description string     `yaml:"description,omitempty" json:"description,omitempty"`
 	Parent      string     `yaml:"parent,omitempty" json:"parent,omitempty"`
 	Lead        *GroupLead `yaml:"lead,omitempty" json:"lead,omitempty"`
-	Resources   []string   `yaml:"resources,omitempty" json:"resources,omitempty"`
+	// Desks lists desk IDs to treat as members of this group (declarative shorthand).
+	// At runtime, membership is enforced via each desk's parent field.
+	Desks     []string   `yaml:"desks,omitempty" json:"desks,omitempty"`
+	Resources []string   `yaml:"resources,omitempty" json:"resources,omitempty"`
 
 	// Event subscriptions: which event types this group listens to.
 	Subscribe []string `yaml:"subscribe,omitempty" json:"subscribe,omitempty"`

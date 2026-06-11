@@ -1,16 +1,7 @@
 kind: resource
 id: hello-file
 name: Hello File
-type: file
-
-sdk: "local:../../../roster-sdk-python"
-
-executor:
-  type: sdk
+type: local
 
 config:
-  path: "./hello.txt"
-
-subscribe:
-  - on: greeter.done
-    action: write
+  path: ./hello.txt

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -139,32 +138,12 @@ func (w *Watcher) startPolling(ctx context.Context) error {
 	}
 }
 
-// poll checks the resource for changes and emits events.
-func (w *Watcher) poll(ctx context.Context) {
-	checkAction, hasCheck := w.resource.Actions["check"]
-	if hasCheck && checkAction.Exec != "" {
-		output, err := runCommand(ctx, checkAction.Exec)
-		if err != nil {
-			return
-		}
-		if len(strings.TrimSpace(output)) == 0 {
-			return
-		}
-		for _, watchType := range w.resource.Watch {
-			w.events <- types.Event{
-				Type:    w.resource.ID + "." + watchType,
-				Source:  w.resource.ID,
-				Payload: []byte(output),
-			}
-		}
-		return
-	}
-
+// poll emits watch events for the resource on each tick.
+func (w *Watcher) poll(_ context.Context) {
 	for _, watchType := range w.resource.Watch {
 		w.events <- types.Event{
-			Type:    w.resource.ID + "." + watchType,
-			Source:  w.resource.ID,
-			Payload: nil,
+			Type:   w.resource.ID + "." + watchType,
+			Source: w.resource.ID,
 		}
 	}
 }
@@ -180,11 +159,3 @@ func parseInterval(s string) time.Duration {
 	return d
 }
 
-func runCommand(ctx context.Context, command string) (string, error) {
-	cmd := exec.CommandContext(ctx, "sh", "-c", command)
-	out, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("resource check: %w", err)
-	}
-	return string(out), nil
-}

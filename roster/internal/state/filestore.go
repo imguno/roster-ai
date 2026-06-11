@@ -21,6 +21,7 @@ type FileStore struct {
 	deskSession *fileDeskSessionStore
 	group       *fileGroupStore
 	run         *fileRunStore
+	notes       *fileNoteStore
 }
 
 func NewFileStore(dir string) (*FileStore, error) {
@@ -43,6 +44,7 @@ func NewFileStore(dir string) (*FileStore, error) {
 		return nil, err
 	}
 	fs.run = newFileRunStore(filepath.Join(dir, "runs"))
+	fs.notes = newFileNoteStore(filepath.Join(dir, "notes.json"))
 	return fs, nil
 }
 
@@ -50,6 +52,7 @@ func (f *FileStore) Desk() DeskStore              { return f.desk }
 func (f *FileStore) DeskSession() DeskSessionStore { return f.deskSession }
 func (f *FileStore) Group() GroupStore             { return f.group }
 func (f *FileStore) Run() RunStore                 { return f.run }
+func (f *FileStore) Notes() NoteStore              { return f.notes }
 
 // --- fileDeskStore ---
 
@@ -510,6 +513,76 @@ func (s *fileRunStore) LoadStep(runID, groupID, deskID string) (*types.Artifact,
 		Payload:   []byte(body),
 		CreatedAt: createdAt,
 	}, true
+}
+
+// --- fileNoteStore ---
+//
+// Persists notes as a flat JSON map: notes/{scopeID → {key → base64(value)}}.
+// The file is rewritten on every mutation (notes are infrequent).
+type fileNoteStore struct {
+	mu   sync.RWMutex
+	path string
+	data map[string]map[string][]byte // scopeID → key → value
+}
+
+func newFileNoteStore(path string) *fileNoteStore {
+	s := &fileNoteStore{path: path, data: make(map[string]map[string][]byte)}
+	_ = s.load()
+	return s
+}
+
+func (s *fileNoteStore) Set(scopeID, key string, value []byte) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.data[scopeID] == nil {
+		s.data[scopeID] = make(map[string][]byte)
+	}
+	s.data[scopeID][key] = value
+	_ = s.flush()
+}
+
+func (s *fileNoteStore) Get(scopeID, key string) ([]byte, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	v, ok := s.data[scopeID][key]
+	return v, ok
+}
+
+func (s *fileNoteStore) Delete(scopeID, key string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.data[scopeID], key)
+	_ = s.flush()
+}
+
+func (s *fileNoteStore) All(scopeID string) map[string][]byte {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	src := s.data[scopeID]
+	out := make(map[string][]byte, len(src))
+	for k, v := range src {
+		out[k] = v
+	}
+	return out
+}
+
+func (s *fileNoteStore) load() error {
+	data, err := os.ReadFile(s.path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(data, &s.data)
+}
+
+func (s *fileNoteStore) flush() error {
+	data, err := json.MarshalIndent(s.data, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(s.path, data, 0640)
 }
 
 // parseMarkdownFrontmatter extracts YAML frontmatter and body from Markdown content.

@@ -12,6 +12,16 @@ type Store interface {
 	DeskSession() DeskSessionStore
 	Group() GroupStore
 	Run() RunStore
+	Notes() NoteStore
+}
+
+// NoteStore persists key-value notes for a desk or group.
+// Notes are mutable and survive across runs (unlike session history).
+type NoteStore interface {
+	Set(scopeID, key string, value []byte)
+	Get(scopeID, key string) ([]byte, bool)
+	Delete(scopeID, key string)
+	All(scopeID string) map[string][]byte
 }
 
 // RunStore persists per-desk checkpoints within a group run so that

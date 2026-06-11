@@ -21,6 +21,7 @@ type SQLiteStore struct {
 	deskSession *sqliteDeskSessionStore
 	group       *sqliteGroupStore
 	run         *sqliteRunStore
+	notes       *sqliteNoteStore
 }
 
 // NewSQLiteStore opens (or creates) a SQLite database at dbPath and
@@ -48,6 +49,7 @@ func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 	s.deskSession = &sqliteDeskSessionStore{db: db}
 	s.group = &sqliteGroupStore{db: db}
 	s.run = &sqliteRunStore{db: db}
+	s.notes = &sqliteNoteStore{db: db}
 	return s, nil
 }
 
@@ -60,6 +62,7 @@ func (s *SQLiteStore) Desk() DeskStore              { return s.desk }
 func (s *SQLiteStore) DeskSession() DeskSessionStore { return s.deskSession }
 func (s *SQLiteStore) Group() GroupStore             { return s.group }
 func (s *SQLiteStore) Run() RunStore                 { return s.run }
+func (s *SQLiteStore) Notes() NoteStore              { return s.notes }
 
 // createTables initialises all required tables and indexes.
 func createTables(db *sql.DB) error {
@@ -107,6 +110,13 @@ func createTables(db *sql.DB) error {
 			meta TEXT,
 			created_at DATETIME,
 			PRIMARY KEY (run_id, group_id, desk_id)
+		)`,
+
+		`CREATE TABLE IF NOT EXISTS notes (
+			scope_id TEXT NOT NULL,
+			key TEXT NOT NULL,
+			value BLOB NOT NULL,
+			PRIMARY KEY (scope_id, key)
 		)`,
 	}
 	for _, stmt := range stmts {
@@ -335,4 +345,49 @@ func (s *sqliteRunStore) LoadStep(runID, groupID, deskID string) (*types.Artifac
 		_ = json.Unmarshal([]byte(metaStr.String), &a.Meta)
 	}
 	return &a, true
+}
+
+// ---------------------------------------------------------------------------
+// sqliteNoteStore
+// ---------------------------------------------------------------------------
+
+type sqliteNoteStore struct {
+	db *sql.DB
+}
+
+func (s *sqliteNoteStore) Set(scopeID, key string, value []byte) {
+	_, _ = s.db.Exec(
+		`INSERT OR REPLACE INTO notes (scope_id, key, value) VALUES (?, ?, ?)`,
+		scopeID, key, value,
+	)
+}
+
+func (s *sqliteNoteStore) Get(scopeID, key string) ([]byte, bool) {
+	var v []byte
+	err := s.db.QueryRow(`SELECT value FROM notes WHERE scope_id = ? AND key = ?`, scopeID, key).Scan(&v)
+	if err != nil {
+		return nil, false
+	}
+	return v, true
+}
+
+func (s *sqliteNoteStore) Delete(scopeID, key string) {
+	_, _ = s.db.Exec(`DELETE FROM notes WHERE scope_id = ? AND key = ?`, scopeID, key)
+}
+
+func (s *sqliteNoteStore) All(scopeID string) map[string][]byte {
+	rows, err := s.db.Query(`SELECT key, value FROM notes WHERE scope_id = ?`, scopeID)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	out := make(map[string][]byte)
+	for rows.Next() {
+		var k string
+		var v []byte
+		if err := rows.Scan(&k, &v); err == nil {
+			out[k] = v
+		}
+	}
+	return out
 }

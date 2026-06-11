@@ -12,6 +12,7 @@ type MemoryStore struct {
 	deskSession *memoryDeskSessionStore
 	group       *memoryGroupStore
 	run         *memoryRunStore
+	notes       *memoryNoteStore
 }
 
 func NewMemoryStore() *MemoryStore {
@@ -20,6 +21,7 @@ func NewMemoryStore() *MemoryStore {
 		deskSession: &memoryDeskSessionStore{data: make(map[string][]SessionEntry)},
 		group:       &memoryGroupStore{data: make(map[string][]Message)},
 		run:         &memoryRunStore{data: make(map[string]*types.Artifact)},
+		notes:       &memoryNoteStore{data: make(map[string]map[string][]byte)},
 	}
 }
 
@@ -27,6 +29,7 @@ func (m *MemoryStore) Desk() DeskStore              { return m.desk }
 func (m *MemoryStore) DeskSession() DeskSessionStore { return m.deskSession }
 func (m *MemoryStore) Group() GroupStore             { return m.group }
 func (m *MemoryStore) Run() RunStore                 { return m.run }
+func (m *MemoryStore) Notes() NoteStore              { return m.notes }
 
 // --- memoryDeskStore ---
 
@@ -97,6 +100,46 @@ func (s *memoryGroupStore) Clear(groupID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.data, groupID)
+}
+
+// --- memoryNoteStore ---
+
+type memoryNoteStore struct {
+	mu   sync.RWMutex
+	data map[string]map[string][]byte // scopeID → key → value
+}
+
+func (s *memoryNoteStore) Set(scopeID, key string, value []byte) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.data[scopeID] == nil {
+		s.data[scopeID] = make(map[string][]byte)
+	}
+	s.data[scopeID][key] = value
+}
+
+func (s *memoryNoteStore) Get(scopeID, key string) ([]byte, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	v, ok := s.data[scopeID][key]
+	return v, ok
+}
+
+func (s *memoryNoteStore) Delete(scopeID, key string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.data[scopeID], key)
+}
+
+func (s *memoryNoteStore) All(scopeID string) map[string][]byte {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	src := s.data[scopeID]
+	out := make(map[string][]byte, len(src))
+	for k, v := range src {
+		out[k] = v
+	}
+	return out
 }
 
 // --- memoryRunStore ---

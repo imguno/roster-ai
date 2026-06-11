@@ -60,9 +60,23 @@ func LoadProject(dir string) (*Project, error) {
 	if err := p.resolveAgentRefs(dir); err != nil {
 		return nil, err
 	}
+	p.applyGroupDesks()
 	p.applyDefaults()
 	p.bindImplicitAgents()
 	return p, nil
+}
+
+// applyGroupDesks sets desk.Parent for any desk listed in group.Desks that
+// doesn't already have a parent set. This lets groups declare their members
+// inline instead of requiring each desk file to carry a parent: field.
+func (p *Project) applyGroupDesks() {
+	for groupID, group := range p.Groups {
+		for _, deskID := range group.Desks {
+			if desk, ok := p.Desks[deskID]; ok && desk.Parent == "" {
+				desk.Parent = groupID
+			}
+		}
+	}
 }
 
 // applyDefaults applies org-level and group-level defaults to desks.

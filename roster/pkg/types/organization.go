@@ -1,5 +1,13 @@
 package types
 
+// RoutingRule declares a top-level org routing rule (declarative documentation;
+// actual subscription is set on each group/desk via their `subscribe:` field).
+type RoutingRule struct {
+	On   string `yaml:"on" json:"on"`
+	To   string `yaml:"to" json:"to"`
+	When string `yaml:"when,omitempty" json:"when,omitempty"`
+}
+
 // Org is the root container — always running, always ready.
 // There is exactly one Org per project. Children (groups, desks) declare
 // their membership via the `parent` field.
@@ -18,6 +26,13 @@ type Org struct {
 
 	// Defaults define fallback values applied to all desks in the org.
 	Defaults *DeskDefaults `yaml:"defaults,omitempty" json:"defaults,omitempty"`
+
+	// Groups lists group IDs that belong to this org (declarative; membership
+	// is enforced via each group/desk's parent field at runtime).
+	Groups []string `yaml:"groups,omitempty" json:"groups,omitempty"`
+	// Routing declares org-level event routing rules (declarative documentation).
+	// Actual subscriptions are configured on each group/desk via their subscribe field.
+	Routing []RoutingRule `yaml:"routing,omitempty" json:"routing,omitempty"`
 }
 
 // Organization is kept as an alias for backwards compatibility with v1 configs.
