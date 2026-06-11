@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/roster-io/roster/internal/observe"
+	"github.com/roster-io/roster/internal/store/observe"
 )
 
 var runIDGroupRe = regexp.MustCompile(`^(.+)-\d{8}-`)

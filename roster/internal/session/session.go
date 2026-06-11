@@ -3,7 +3,7 @@ package session
 import (
 	"sync"
 
-	"github.com/roster-io/roster/internal/state"
+	"github.com/roster-io/roster/internal/store/state"
 )
 
 // Session is the shared communication space auto-created when a group is activated.

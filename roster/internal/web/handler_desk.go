@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/roster-io/roster/internal/observe"
+	"github.com/roster-io/roster/internal/store/observe"
 )
 
 func (s *Server) handleDesks(w http.ResponseWriter, r *http.Request) {

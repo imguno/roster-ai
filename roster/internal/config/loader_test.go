@@ -81,9 +81,8 @@ type: github
 watch:
   - pull_request
   - issue
-actions:
-  commit:
-    exec: scripts/commit.sh
+config:
+  repo: my-org/my-repo
 `)
 	if err := os.WriteFile(filepath.Join(dir, "codebase.yaml"), yaml, 0o644); err != nil {
 		t.Fatal(err)

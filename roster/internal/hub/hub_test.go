@@ -6,9 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/roster-io/roster/internal/observe"
-	"github.com/roster-io/roster/internal/skill"
-	"github.com/roster-io/roster/internal/state"
+	"github.com/roster-io/roster/internal/store/observe"
+	"github.com/roster-io/roster/internal/event/routing"
+	"github.com/roster-io/roster/internal/agent/skill"
+	"github.com/roster-io/roster/internal/store/state"
 	"github.com/roster-io/roster/pkg/sdk"
 	"github.com/roster-io/roster/pkg/types"
 )
@@ -189,7 +190,7 @@ func TestResourceBindingInGroup(t *testing.T) {
 		map[string]*types.Resource{
 			"codebase": {
 				ID: "codebase", Type: "github",
-				Actions: map[string]*types.ResourceAction{"commit": {Exec: "echo committed"}},
+				Config: map[string]string{"repo": "my-org/my-repo"},
 			},
 		},
 		nil,
@@ -218,16 +219,6 @@ func TestResourceBindingInGroup(t *testing.T) {
 	}
 	if !hasCodebase {
 		t.Errorf("expected codebase resource in %v", task.Resources)
-	}
-	if task.ActionCallback == nil {
-		t.Fatal("expected ActionCallback to be set")
-	}
-	out, err := task.ActionCallback("codebase", "commit", nil)
-	if err != nil {
-		t.Fatalf("action callback error: %v", err)
-	}
-	if out != "committed\n" {
-		t.Errorf("expected 'committed\\n', got %q", out)
 	}
 }
 
@@ -290,7 +281,7 @@ binary: ./bin/roster-new
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := DetermineEventType(tt.declaredType, tt.payload)
+			got := routing.DetermineEventType(tt.declaredType, tt.payload)
 			if got != tt.want {
 				t.Errorf("DetermineEventType(%q, ...) = %q, want %q", tt.declaredType, got, tt.want)
 			}

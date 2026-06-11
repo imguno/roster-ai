@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"sort"
 
-	"github.com/roster-io/roster/internal/observe"
+	"github.com/roster-io/roster/internal/store/observe"
 )
 
 // handleMetrics handles both reporting and querying metrics.

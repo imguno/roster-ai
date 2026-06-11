@@ -8,7 +8,7 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/roster-io/roster/internal/observe"
+	"github.com/roster-io/roster/internal/store/observe"
 	"github.com/roster-io/roster/pkg/types"
 )
 
