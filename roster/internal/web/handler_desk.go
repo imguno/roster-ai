@@ -5,11 +5,17 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/roster-io/roster/internal/store/observe"
 )
+
+type errorSummary struct {
+	Message string `json:"message"`
+	Count   int    `json:"count"`
+}
 
 func (s *Server) handleDesks(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -30,18 +36,6 @@ func (s *Server) handleDeskSub(w http.ResponseWriter, r *http.Request) {
 	switch parts[1] {
 	case "profile":
 		s.handleDeskProfile(w, r, deskID)
-	case "artifact":
-		content, found := s.hub.DeskArtifact(deskID)
-		if !found {
-			http.NotFound(w, r)
-			return
-		}
-		if content == "" {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		w.Write([]byte(content))
 	case "session":
 		entries, found := s.hub.DeskSession(deskID)
 		if !found {
@@ -50,6 +44,10 @@ func (s *Server) handleDeskSub(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(entries)
+	case "logs":
+		logs := s.hub.DeskLogs(deskID)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(logs)
 	case "executor-file":
 		desks := s.hub.Desks()
 		desk, ok := desks[deskID]
@@ -120,6 +118,13 @@ func (s *Server) handleDeskProfile(w http.ResponseWriter, r *http.Request, deskI
 		ErrorCount        int            `json:"error_count"`
 		LastRun           string         `json:"last_run,omitempty"`
 		ModelsUsed        map[string]int `json:"models_used,omitempty"`
+
+		RecentAvgDurationMs int64          `json:"recent_avg_duration_ms"`
+		DurationTrend       string         `json:"duration_trend"`
+		TopErrors           []errorSummary `json:"top_errors,omitempty"`
+		PeakInputTokens     int            `json:"peak_input_tokens"`
+		PeakOutputTokens    int            `json:"peak_output_tokens"`
+		PeakTotalTokens     int            `json:"peak_total_tokens"`
 	}
 
 	p := profile{DeskID: deskID, ModelsUsed: map[string]int{}}
@@ -128,6 +133,15 @@ func (s *Server) handleDeskProfile(w http.ResponseWriter, r *http.Request, deskI
 	}
 	var totalDuration int64
 	var skipCount float64
+
+	type completionRecord struct {
+		at time.Time
+		ms int64
+	}
+	var completedDurations []completionRecord
+	errorCounts := map[string]int{}
+	// runTokens tracks per-run token sums: [0]=input, [1]=output
+	runTokens := map[string][2]int{}
 
 	for _, ev := range events {
 		if ev.StepID != deskID {
@@ -150,9 +164,23 @@ func (s *Server) handleDeskProfile(w http.ResponseWriter, r *http.Request, deskI
 			if ev.Model != "" {
 				p.ModelsUsed[ev.Model]++
 			}
+			completedDurations = append(completedDurations, completionRecord{at: ev.At, ms: ev.DurationMs})
+			key := ev.RunID
+			if key == "" {
+				key = ev.StepID + "|" + ev.At.Format(time.RFC3339Nano)
+			}
+			cur := runTokens[key]
+			cur[0] += ev.InputTokens
+			cur[1] += ev.OutputTokens
+			runTokens[key] = cur
 		case observe.EventStepFailed:
 			p.ErrorCount++
-		case observe.EventStepSkipped:
+			errMsg := ev.Error
+			if errMsg == "" {
+				errMsg = "(unknown error)"
+			}
+			errorCounts[errMsg]++
+		case "step.skipped":
 			skipCount++
 		}
 	}
@@ -166,6 +194,65 @@ func (s *Server) handleDeskProfile(w http.ResponseWriter, r *http.Request, deskI
 		p.SkipRate = skipCount / float64(p.TotalRuns)
 		if completed > 0 {
 			p.AvgDurationMs = totalDuration / int64(completed)
+		}
+	}
+
+	// Recent average duration & trend
+	if len(completedDurations) >= 5 {
+		sort.Slice(completedDurations, func(i, j int) bool {
+			return completedDurations[i].at.Before(completedDurations[j].at)
+		})
+		recent := completedDurations[len(completedDurations)-5:]
+		var recentSum int64
+		for _, r := range recent {
+			recentSum += r.ms
+		}
+		p.RecentAvgDurationMs = recentSum / 5
+		if p.AvgDurationMs > 0 {
+			ratio := float64(p.RecentAvgDurationMs) / float64(p.AvgDurationMs)
+			if ratio < 0.9 {
+				p.DurationTrend = "faster"
+			} else if ratio > 1.1 {
+				p.DurationTrend = "slower"
+			} else {
+				p.DurationTrend = "stable"
+			}
+		} else {
+			p.DurationTrend = "stable"
+		}
+	} else {
+		p.DurationTrend = "insufficient_data"
+	}
+
+	// Top errors (up to 3)
+	if len(errorCounts) > 0 {
+		type errEntry struct {
+			msg   string
+			count int
+		}
+		errs := make([]errEntry, 0, len(errorCounts))
+		for msg, cnt := range errorCounts {
+			errs = append(errs, errEntry{msg, cnt})
+		}
+		sort.Slice(errs, func(i, j int) bool {
+			return errs[i].count > errs[j].count
+		})
+		limit := 3
+		if len(errs) < limit {
+			limit = len(errs)
+		}
+		for _, e := range errs[:limit] {
+			p.TopErrors = append(p.TopErrors, errorSummary{Message: e.msg, Count: e.count})
+		}
+	}
+
+	// Peak tokens per run
+	for _, tok := range runTokens {
+		total := tok[0] + tok[1]
+		if total > p.PeakTotalTokens {
+			p.PeakTotalTokens = total
+			p.PeakInputTokens = tok[0]
+			p.PeakOutputTokens = tok[1]
 		}
 	}
 

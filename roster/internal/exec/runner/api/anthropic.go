@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -22,7 +21,7 @@ func newAnthropicRunner() *anthropicRunner {
 	return &anthropicRunner{client: &http.Client{Timeout: 120 * time.Second}}
 }
 
-func (r *anthropicRunner) Run(ctx context.Context, task sdk.Task) (*types.Artifact, error) {
+func (r *anthropicRunner) Run(ctx context.Context, task sdk.Task) (*types.Output, error) {
 	apiKey := task.Options["api_key"]
 	if apiKey == "" {
 		return nil, fmt.Errorf("anthropic: missing api_key in desk runner params")
@@ -88,16 +87,12 @@ func (r *anthropicRunner) Run(ctx context.Context, task sdk.Task) (*types.Artifa
 		return nil, fmt.Errorf("anthropic: empty response")
 	}
 
-	return &types.Artifact{
-		AgentID: task.AgentID,
-		Schema:  "text-v1",
-		Payload: []byte(result.Content[0].Text),
-		Meta: map[string]string{
-			"input_tokens":  strconv.Itoa(result.Usage.InputTokens),
-			"output_tokens": strconv.Itoa(result.Usage.OutputTokens),
-			"model":         model,
+	return &types.Output{
+		Content: result.Content[0].Text,
+		Metrics: map[string]float64{
+			"input_tokens":  float64(result.Usage.InputTokens),
+			"output_tokens": float64(result.Usage.OutputTokens),
 		},
-		CreatedAt: time.Now(),
 	}, nil
 }
 

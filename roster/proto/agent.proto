@@ -6,7 +6,7 @@ option go_package = "github.com/roster-io/roster/proto";
 
 // AgentService handles agent execution.
 service AgentService {
-  rpc Execute(TaskRequest) returns (TaskResponse);
+  rpc Execute(TaskRequest) returns (stream TaskEvent);
 }
 
 message TaskRequest {
@@ -29,12 +29,20 @@ message Skill {
   string content = 2; // resolved skill prompt text
 }
 
-message TaskResponse {
+// TaskEvent is streamed during execution.
+// Intermediate events carry only a log entry.
+// The final event carries the full result.
+message TaskEvent {
+  LogEntry     log    = 1;  // intermediate log (set on log events)
+  TaskResult   result = 2;  // final result (set on last event only)
+}
+
+// TaskResult is the final outcome of agent execution.
+message TaskResult {
   repeated EmitEvent  emissions       = 1;
   repeated NoteUpdate note_updates    = 2;
   map<string, double> metrics         = 3;
   string              error           = 4;  // non-empty = execution failed
-  repeated LogEntry   logs            = 5;  // step + result logs for dashboard
 }
 
 message LogEntry {
@@ -79,4 +87,3 @@ message NoteUpdate {
   string key       = 2;
   bytes  value     = 3;
 }
-

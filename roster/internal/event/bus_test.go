@@ -84,6 +84,42 @@ func TestBusPublishAsync(t *testing.T) {
 	}
 }
 
+func TestBusEmit(t *testing.T) {
+	bus := NewBus(100)
+	var received []types.Event
+
+	bus.Subscribe("listener", []string{"result.text"}, func(ctx context.Context, ev types.Event) error {
+		received = append(received, ev)
+		return nil
+	})
+
+	payload := map[string]string{"text": "hello"}
+	if err := bus.Emit(context.Background(), "desk-a", "result.text", payload); err != nil {
+		t.Fatalf("Emit failed: %v", err)
+	}
+
+	// Give async goroutine time to deliver.
+	for i := 0; i < 100; i++ {
+		if len(received) > 0 {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	if len(received) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(received))
+	}
+	if received[0].Type != "result.text" {
+		t.Fatalf("expected type result.text, got %s", received[0].Type)
+	}
+	if received[0].Source != "desk-a" {
+		t.Fatalf("expected source desk-a, got %s", received[0].Source)
+	}
+	if string(received[0].Payload) != `{"text":"hello"}` {
+		t.Fatalf("unexpected payload: %s", string(received[0].Payload))
+	}
+}
+
 func TestBusHistory(t *testing.T) {
 	bus := NewBus(3)
 	bus.Publish(context.Background(), types.Event{Type: "a"})

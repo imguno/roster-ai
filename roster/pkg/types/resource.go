@@ -11,5 +11,6 @@ type Resource struct {
 	Type        string            `yaml:"type,omitempty" json:"type,omitempty"`
 	MCP         string            `yaml:"mcp,omitempty" json:"mcp,omitempty"`
 	Connection  string            `yaml:"connection,omitempty" json:"connection,omitempty"`
+	Watch       []string          `yaml:"watch,omitempty" json:"watch,omitempty"`
 	Config      map[string]string `yaml:"config,omitempty" json:"config,omitempty"`
 }

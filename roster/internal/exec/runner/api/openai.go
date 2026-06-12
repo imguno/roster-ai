@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/roster-io/roster/pkg/sdk"
@@ -21,7 +20,7 @@ func newOpenAIRunner() *openaiRunner {
 	return &openaiRunner{client: &http.Client{Timeout: 120 * time.Second}}
 }
 
-func (r *openaiRunner) Run(ctx context.Context, task sdk.Task) (*types.Artifact, error) {
+func (r *openaiRunner) Run(ctx context.Context, task sdk.Task) (*types.Output, error) {
 	apiKey := task.Options["api_key"]
 	if apiKey == "" {
 		return nil, fmt.Errorf("openai: missing api_key in desk runner params")
@@ -85,15 +84,11 @@ func (r *openaiRunner) Run(ctx context.Context, task sdk.Task) (*types.Artifact,
 		return nil, fmt.Errorf("openai: empty response")
 	}
 
-	return &types.Artifact{
-		AgentID: task.AgentID,
-		Schema:  "text-v1",
-		Payload: []byte(result.Choices[0].Message.Content),
-		Meta: map[string]string{
-			"input_tokens":  strconv.Itoa(result.Usage.PromptTokens),
-			"output_tokens": strconv.Itoa(result.Usage.CompletionTokens),
-			"model":         model,
+	return &types.Output{
+		Content: result.Choices[0].Message.Content,
+		Metrics: map[string]float64{
+			"input_tokens":  float64(result.Usage.PromptTokens),
+			"output_tokens": float64(result.Usage.CompletionTokens),
 		},
-		CreatedAt: time.Now(),
 	}, nil
 }

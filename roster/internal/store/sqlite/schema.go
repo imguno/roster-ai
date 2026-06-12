@@ -7,69 +7,50 @@ import (
 
 func createSchema(db *sql.DB) error {
 	stmts := []string{
-		`CREATE TABLE IF NOT EXISTS desk_artifacts (
-			id TEXT PRIMARY KEY,
-			desk_id TEXT NOT NULL,
-			agent_id TEXT,
-			schema TEXT,
-			payload BLOB,
-			meta TEXT,
-			created_at DATETIME NOT NULL,
-			UNIQUE(desk_id, id)
-		)`,
-		`CREATE INDEX IF NOT EXISTS idx_desk_artifacts_desk ON desk_artifacts(desk_id)`,
-
-		`CREATE TABLE IF NOT EXISTS desk_sessions (
+		// Unified session table — replaces desk_sessions + group_messages.
+		`CREATE TABLE IF NOT EXISTS sessions (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			desk_id TEXT NOT NULL,
-			run_id TEXT NOT NULL,
-			role TEXT NOT NULL,
-			content TEXT NOT NULL,
-			at DATETIME NOT NULL
+			scope_id  TEXT NOT NULL,
+			run_id    TEXT NOT NULL DEFAULT '',
+			source_id TEXT NOT NULL DEFAULT '',
+			role      TEXT NOT NULL,
+			type      TEXT NOT NULL DEFAULT '',
+			content   TEXT NOT NULL,
+			at        DATETIME NOT NULL
 		)`,
-		`CREATE INDEX IF NOT EXISTS idx_desk_sessions_desk ON desk_sessions(desk_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_sessions_scope ON sessions(scope_id)`,
 
-		`CREATE TABLE IF NOT EXISTS group_messages (
+		// Logs — execution progress.
+		`CREATE TABLE IF NOT EXISTS logs (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			group_id TEXT NOT NULL,
-			desk_id TEXT NOT NULL,
-			role TEXT NOT NULL,
-			content TEXT NOT NULL,
-			payload BLOB
+			scope_id TEXT NOT NULL,
+			run_id   TEXT NOT NULL DEFAULT '',
+			type     TEXT NOT NULL,
+			content  TEXT NOT NULL,
+			at       DATETIME NOT NULL
 		)`,
-		`CREATE INDEX IF NOT EXISTS idx_group_messages_group ON group_messages(group_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_logs_scope ON logs(scope_id)`,
 
-		`CREATE TABLE IF NOT EXISTS run_steps (
-			run_id TEXT NOT NULL,
-			group_id TEXT NOT NULL,
-			desk_id TEXT NOT NULL,
-			artifact_id TEXT,
-			agent_id TEXT,
-			schema TEXT,
-			payload BLOB,
-			meta TEXT,
-			created_at DATETIME,
-			PRIMARY KEY (run_id, group_id, desk_id)
-		)`,
-
+		// Notes — key-value state.
 		`CREATE TABLE IF NOT EXISTS notes (
 			scope_id TEXT NOT NULL,
-			key TEXT NOT NULL,
-			value BLOB NOT NULL,
+			key      TEXT NOT NULL,
+			value    BLOB NOT NULL,
 			PRIMARY KEY (scope_id, key)
 		)`,
 
+		// Metrics.
 		`CREATE TABLE IF NOT EXISTS metrics (
 			id       INTEGER PRIMARY KEY AUTOINCREMENT,
 			at       INTEGER NOT NULL,
 			run_id   TEXT NOT NULL,
-			desk_id  TEXT NOT NULL,
+			scope_id TEXT NOT NULL,
 			agent_id TEXT NOT NULL,
 			name     TEXT NOT NULL,
 			value    REAL NOT NULL
 		)`,
+		`CREATE INDEX IF NOT EXISTS idx_metrics_scope ON metrics(scope_id, name)`,
 		`CREATE INDEX IF NOT EXISTS idx_metrics_agent ON metrics(agent_id, name)`,
-		`CREATE INDEX IF NOT EXISTS idx_metrics_desk  ON metrics(desk_id, name)`,
 		`CREATE INDEX IF NOT EXISTS idx_metrics_run   ON metrics(run_id)`,
 	}
 	for _, stmt := range stmts {
@@ -77,5 +58,45 @@ func createSchema(db *sql.DB) error {
 			return fmt.Errorf("sqlite: create schema: %w", err)
 		}
 	}
+
+	// Migrate legacy tables if they exist.
+	migrateLegacy(db)
+
 	return nil
+}
+
+// migrateLegacy copies data from old tables (desk_sessions, group_messages,
+// desk_artifacts, run_steps) into the new unified tables, then drops them.
+func migrateLegacy(db *sql.DB) {
+	// desk_sessions → sessions
+	if tableExists(db, "desk_sessions") {
+		db.Exec(`INSERT OR IGNORE INTO sessions (scope_id, run_id, role, content, at)
+			SELECT desk_id, run_id, role, content, at FROM desk_sessions`)
+		db.Exec(`DROP TABLE desk_sessions`)
+	}
+	// group_messages → sessions
+	if tableExists(db, "group_messages") {
+		db.Exec(`INSERT OR IGNORE INTO sessions (scope_id, source_id, role, content, at)
+			SELECT group_id, desk_id, role, content, CURRENT_TIMESTAMP FROM group_messages`)
+		db.Exec(`DROP TABLE group_messages`)
+	}
+	// Drop legacy artifact tables.
+	if tableExists(db, "desk_artifacts") {
+		db.Exec(`DROP TABLE desk_artifacts`)
+	}
+	if tableExists(db, "run_steps") {
+		db.Exec(`DROP TABLE run_steps`)
+	}
+	if tableExists(db, "artifacts") {
+		db.Exec(`DROP TABLE artifacts`)
+	}
+	if tableExists(db, "checkpoints") {
+		db.Exec(`DROP TABLE checkpoints`)
+	}
+}
+
+func tableExists(db *sql.DB, name string) bool {
+	var n int
+	err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?`, name).Scan(&n)
+	return err == nil && n > 0
 }

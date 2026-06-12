@@ -27,7 +27,7 @@ func (r *Registry) Register(t types.ExecutorType, exec sdk.Executor) {
 }
 
 // Dispatch routes a task to the executor registered for the given type.
-func (r *Registry) Dispatch(ctx context.Context, t types.ExecutorType, task sdk.Task) (*types.Artifact, error) {
+func (r *Registry) Dispatch(ctx context.Context, t types.ExecutorType, task sdk.Task) (*types.Output, error) {
 	r.mu.RLock()
 	exec, ok := r.executors[t]
 	r.mu.RUnlock()

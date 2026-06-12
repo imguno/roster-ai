@@ -28,7 +28,7 @@ const (
 //
 // AgentService handles agent execution.
 type AgentServiceClient interface {
-	Execute(ctx context.Context, in *TaskRequest, opts ...grpc.CallOption) (*TaskResponse, error)
+	Execute(ctx context.Context, in *TaskRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[TaskEvent], error)
 }
 
 type agentServiceClient struct {
@@ -39,15 +39,24 @@ func NewAgentServiceClient(cc grpc.ClientConnInterface) AgentServiceClient {
 	return &agentServiceClient{cc}
 }
 
-func (c *agentServiceClient) Execute(ctx context.Context, in *TaskRequest, opts ...grpc.CallOption) (*TaskResponse, error) {
+func (c *agentServiceClient) Execute(ctx context.Context, in *TaskRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[TaskEvent], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(TaskResponse)
-	err := c.cc.Invoke(ctx, AgentService_Execute_FullMethodName, in, out, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &AgentService_ServiceDesc.Streams[0], AgentService_Execute_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	return out, nil
+	x := &grpc.GenericClientStream[TaskRequest, TaskEvent]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
 }
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type AgentService_ExecuteClient = grpc.ServerStreamingClient[TaskEvent]
 
 // AgentServiceServer is the server API for AgentService service.
 // All implementations must embed UnimplementedAgentServiceServer
@@ -55,7 +64,7 @@ func (c *agentServiceClient) Execute(ctx context.Context, in *TaskRequest, opts 
 //
 // AgentService handles agent execution.
 type AgentServiceServer interface {
-	Execute(context.Context, *TaskRequest) (*TaskResponse, error)
+	Execute(*TaskRequest, grpc.ServerStreamingServer[TaskEvent]) error
 	mustEmbedUnimplementedAgentServiceServer()
 }
 
@@ -66,8 +75,8 @@ type AgentServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedAgentServiceServer struct{}
 
-func (UnimplementedAgentServiceServer) Execute(context.Context, *TaskRequest) (*TaskResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method Execute not implemented")
+func (UnimplementedAgentServiceServer) Execute(*TaskRequest, grpc.ServerStreamingServer[TaskEvent]) error {
+	return status.Error(codes.Unimplemented, "method Execute not implemented")
 }
 func (UnimplementedAgentServiceServer) mustEmbedUnimplementedAgentServiceServer() {}
 func (UnimplementedAgentServiceServer) testEmbeddedByValue()                      {}
@@ -90,23 +99,16 @@ func RegisterAgentServiceServer(s grpc.ServiceRegistrar, srv AgentServiceServer)
 	s.RegisterService(&AgentService_ServiceDesc, srv)
 }
 
-func _AgentService_Execute_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(TaskRequest)
-	if err := dec(in); err != nil {
-		return nil, err
+func _AgentService_Execute_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(TaskRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
 	}
-	if interceptor == nil {
-		return srv.(AgentServiceServer).Execute(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: AgentService_Execute_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(AgentServiceServer).Execute(ctx, req.(*TaskRequest))
-	}
-	return interceptor(ctx, in, info, handler)
+	return srv.(AgentServiceServer).Execute(m, &grpc.GenericServerStream[TaskRequest, TaskEvent]{ServerStream: stream})
 }
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type AgentService_ExecuteServer = grpc.ServerStreamingServer[TaskEvent]
 
 // AgentService_ServiceDesc is the grpc.ServiceDesc for AgentService service.
 // It's only intended for direct use with grpc.RegisterService,
@@ -114,12 +116,13 @@ func _AgentService_Execute_Handler(srv interface{}, ctx context.Context, dec fun
 var AgentService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "roster.agent.v1.AgentService",
 	HandlerType: (*AgentServiceServer)(nil),
-	Methods: []grpc.MethodDesc{
+	Methods:     []grpc.MethodDesc{},
+	Streams: []grpc.StreamDesc{
 		{
-			MethodName: "Execute",
-			Handler:    _AgentService_Execute_Handler,
+			StreamName:    "Execute",
+			Handler:       _AgentService_Execute_Handler,
+			ServerStreams: true,
 		},
 	},
-	Streams:  []grpc.StreamDesc{},
 	Metadata: "proto/agent.proto",
 }

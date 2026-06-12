@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/roster-io/roster/pkg/sdk"
@@ -21,7 +20,7 @@ func newGeminiRunner() *geminiRunner {
 	return &geminiRunner{client: &http.Client{Timeout: 120 * time.Second}}
 }
 
-func (r *geminiRunner) Run(ctx context.Context, task sdk.Task) (*types.Artifact, error) {
+func (r *geminiRunner) Run(ctx context.Context, task sdk.Task) (*types.Output, error) {
 	apiKey := task.Options["api_key"]
 	if apiKey == "" {
 		return nil, fmt.Errorf("gemini: missing api_key in desk runner params")
@@ -101,15 +100,11 @@ func (r *geminiRunner) Run(ctx context.Context, task sdk.Task) (*types.Artifact,
 		return nil, fmt.Errorf("gemini: empty response")
 	}
 
-	return &types.Artifact{
-		AgentID: task.AgentID,
-		Schema:  "text-v1",
-		Payload: []byte(result.Candidates[0].Content.Parts[0].Text),
-		Meta: map[string]string{
-			"input_tokens":  strconv.Itoa(result.UsageMetadata.PromptTokenCount),
-			"output_tokens": strconv.Itoa(result.UsageMetadata.CandidatesTokenCount),
-			"model":         model,
+	return &types.Output{
+		Content: result.Candidates[0].Content.Parts[0].Text,
+		Metrics: map[string]float64{
+			"input_tokens":  float64(result.UsageMetadata.PromptTokenCount),
+			"output_tokens": float64(result.UsageMetadata.CandidatesTokenCount),
 		},
-		CreatedAt: time.Now(),
 	}, nil
 }

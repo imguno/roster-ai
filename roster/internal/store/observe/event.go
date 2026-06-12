@@ -5,18 +5,32 @@ import "time"
 type EventType string
 
 const (
-	EventStepStarted        EventType = "step.started"
-	EventStepCompleted      EventType = "step.completed"
-	EventStepFailed         EventType = "step.failed"
-	EventStepSkipped        EventType = "step.skipped"
+	EventStepStarted   EventType = "step.started"
+	EventStepCompleted EventType = "step.completed"
+	EventStepFailed    EventType = "step.failed"
+	EventStepLog       EventType = "step.log"
+
 	EventHumanInputWaiting  EventType = "human.waiting"
 	EventHumanInputReceived EventType = "human.received"
+
+	EventQueuePushed    EventType = "queue.pushed"
+	EventQueueRecovered EventType = "queue.recovered"
+	EventQueueCollapsed EventType = "queue.collapsed"
+	EventQueueGC        EventType = "queue.gc"
+
+	EventHubStarted    EventType = "hub.started"
+	EventHubReloaded   EventType = "hub.reloaded"
+	EventPublished     EventType = "event.published"
+	EventMetrics       EventType = "metrics.reported"
+	EventEmitRejected  EventType = "emit.rejected"
+	EventStepTimedOut  EventType = "step.timed_out"
+	EventLoopBreaker   EventType = "loop.breaker"
 )
 
 // Event is a single observation emitted during execution.
 type Event struct {
 	RunID  string    `json:"run_id,omitempty"`
-	StepID string    `json:"step_id,omitempty"` // desk or group ID
+	StepID string    `json:"step_id,omitempty"` // desk ID
 	Type   EventType `json:"type"`
 	At     time.Time `json:"at"`
 
@@ -27,19 +41,23 @@ type Event struct {
 	OutputTokens int    `json:"output_tokens,omitempty"`
 	Model        string `json:"model,omitempty"`
 
-	// Artifact summary
+	// Output summary
 	InputBytes  int `json:"input_bytes,omitempty"`
 	OutputBytes int `json:"output_bytes,omitempty"`
 
-	// Output holds a truncated preview of the step's output artifact (up to 2048 bytes).
-	// Only populated on step.completed events.
+	// Input holds a truncated preview of the step's input (up to 512 bytes).
+	Input string `json:"input,omitempty"`
+
+	// Output holds a truncated preview of the step's output (up to 2048 bytes).
 	Output string `json:"output,omitempty"`
 
 	Error string `json:"error,omitempty"`
 
-	// Metrics holds arbitrary key-value metrics reported by executors or external tools.
-	// Keys are metric names (e.g. "tokens", "cost", "lines_changed"), values are numeric.
-	// Scripts report via stderr: METRIC:{"tokens":1234,"cost":0.05}
-	// External tools report via POST /api/metrics.
+	// Metrics holds arbitrary key-value metrics.
 	Metrics map[string]float64 `json:"metrics,omitempty"`
+
+	// LogType categorizes a step.log event: "step" (progress) or "result" (final output).
+	LogType string `json:"log_type,omitempty"`
+	// LogContent holds the log message text for step.log events.
+	LogContent string `json:"log_content,omitempty"`
 }

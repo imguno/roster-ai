@@ -14,7 +14,7 @@ import (
 
 // Dispatcher is the dispatch interface accepted by the worker server.
 type Dispatcher interface {
-	Dispatch(ctx context.Context, t types.ExecutorType, task sdk.Task) (*types.Artifact, error)
+	Dispatch(ctx context.Context, t types.ExecutorType, task sdk.Task) (*types.Output, error)
 }
 
 // Server runs Roster in worker mode, receiving tasks from the Hub via gRPC.

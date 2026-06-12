@@ -7,14 +7,13 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
-	"time"
 
 	"github.com/roster-io/roster/pkg/sdk"
 	"github.com/roster-io/roster/pkg/types"
 )
 
 // DockerExecutor runs a Docker container as a Roster task.
-// The container receives the prompt via stdin and must write a JSON artifact to stdout.
+// The container receives the prompt via stdin and must write a JSON output to stdout.
 //
 // Desk config example:
 //
@@ -26,7 +25,7 @@ type DockerExecutor struct{}
 
 func NewDockerRunner() *DockerExecutor { return &DockerExecutor{} }
 
-func (d *DockerExecutor) Run(ctx context.Context, task sdk.Task) (*types.Artifact, error) {
+func (d *DockerExecutor) Run(ctx context.Context, task sdk.Task) (*types.Output, error) {
 	image, ok := task.Options["image"]
 	if !ok || image == "" {
 		return nil, fmt.Errorf("docker executor: missing 'image' param for desk %s", task.DeskID)
@@ -57,17 +56,11 @@ func (d *DockerExecutor) Run(ctx context.Context, task sdk.Task) (*types.Artifac
 	}
 
 	var out struct {
-		Schema  string `json:"schema"`
-		Payload []byte `json:"payload"`
+		Payload string `json:"payload"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
-		return nil, fmt.Errorf("docker executor [%s]: stdout is not valid artifact JSON: %w", image, err)
+		return &types.Output{Content: string(bytes.TrimSpace(stdout.Bytes()))}, nil
 	}
 
-	return &types.Artifact{
-		AgentID:   task.AgentID,
-		Schema:    out.Schema,
-		Payload:   out.Payload,
-		CreatedAt: time.Now(),
-	}, nil
+	return &types.Output{Content: out.Payload}, nil
 }

@@ -2,6 +2,7 @@ package event
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
 
 	"github.com/roster-io/roster/pkg/types"
@@ -106,6 +107,22 @@ func (b *Bus) PublishAsync(ctx context.Context, ev types.Event) {
 	}
 }
 
+// Emit publishes a typed event used for agent/desk result events that carry
+// payloads and are routed by the Hub. The payload is JSON-encoded before
+// being placed on the bus. Observation-style events should use Publish instead.
+func (b *Bus) Emit(ctx context.Context, scopeID, eventType string, payload any) error {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	b.PublishAsync(ctx, types.Event{
+		Type:    eventType,
+		Source:  scopeID,
+		Payload: data,
+	})
+	return nil
+}
+
 // History returns the recent event history.
 func (b *Bus) History() []types.Event {
 	b.mu.RLock()
@@ -115,14 +132,23 @@ func (b *Bus) History() []types.Event {
 	return out
 }
 
-// matches returns true if eventTypes is empty (wildcard) or contains the given type.
+// matches returns true if eventTypes is empty (match all) or any pattern matches.
+// Patterns support trailing wildcard: "dev-team.*" matches "dev-team.done",
+// "dev-team.developer.done", etc.
 func matches(eventTypes []string, eventType string) bool {
 	if len(eventTypes) == 0 {
 		return true
 	}
-	for _, t := range eventTypes {
-		if t == eventType {
+	for _, pattern := range eventTypes {
+		if pattern == eventType {
 			return true
+		}
+		// Trailing wildcard: "dev-team.*" matches any event starting with "dev-team."
+		if len(pattern) > 1 && pattern[len(pattern)-1] == '*' {
+			prefix := pattern[:len(pattern)-1] // includes the trailing dot
+			if len(eventType) >= len(prefix) && eventType[:len(prefix)] == prefix {
+				return true
+			}
 		}
 	}
 	return false

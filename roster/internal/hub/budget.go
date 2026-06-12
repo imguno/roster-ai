@@ -66,9 +66,6 @@ func (h *Hub) checkBudget(runID, deskID string, cost float64) {
 	}
 }
 
-// checkArtifactSchema is a no-op now that policy is removed.
-func (h *Hub) checkArtifactSchema(_, _, _ string) {}
-
 // BudgetStatus returns accumulated costs per scope for the API.
 func (h *Hub) BudgetStatus() map[string]float64 {
 	return h.budget.All()

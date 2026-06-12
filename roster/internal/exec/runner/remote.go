@@ -21,7 +21,7 @@ func NewRemoteRunner(address string) *RemoteExecutor {
 	return &RemoteExecutor{address: address}
 }
 
-func (r *RemoteExecutor) Run(ctx context.Context, task sdk.Task) (*types.Artifact, error) {
+func (r *RemoteExecutor) Run(ctx context.Context, task sdk.Task) (*types.Output, error) {
 	addr := r.address
 	if a, ok := task.Options["address"]; ok && a != "" {
 		addr = a
@@ -46,9 +46,7 @@ func (r *RemoteExecutor) Run(ctx context.Context, task sdk.Task) (*types.Artifac
 		return nil, fmt.Errorf("remote executor execute: %w", err)
 	}
 
-	return &types.Artifact{
-		AgentID: task.AgentID,
-		Schema:  resp.Schema,
-		Payload: resp.Payload,
+	return &types.Output{
+		Content: string(resp.Payload),
 	}, nil
 }

@@ -8,7 +8,7 @@ import * as api from '../api'
 import 'reactflow/dist/style.css'
 import './GraphView.css'
 
-// ── Speech bubble — scrolls through artifact text ──
+// ── Speech bubble — scrolls through output text ──
 function SpeechBubble({ text }) {
   const [offset, setOffset] = useState(0)
   const len = 50
@@ -38,14 +38,15 @@ function SpeechBubble({ text }) {
 
 // ── Desk node ──
 function DeskNode({ data }) {
-  const { label, status, lastRun, bubble } = data
+  const { label, status, lastRun, bubble, retryCount } = data
   return (
     <div className={`desk-card ds-${status}`}>
       <Handle type="target" position={Position.Left} className="node-handle" />
-      {status === 'working' && <SpeechBubble text={bubble || 'thinking …'} />}
+      {(status === 'working' || status === 'done') && <SpeechBubble text={bubble || (status === 'working' ? 'thinking …' : null)} />}
       <div className="desk-header">
         <span className={`desk-dot ds-dot-${status}`} />
         <span className="desk-name">{label}</span>
+        {retryCount > 0 && <span className="desk-retry" title="Retries from failure events">↻{retryCount}</span>}
         {status !== 'idle' && <span className={`desk-status dst-${status}`}>{status}</span>}
       </div>
       {lastRun && <div className="desk-meta">{lastRun}</div>}
@@ -125,51 +126,81 @@ function StatusBar({ deskStates, events }) {
   )
 }
 
-// ── Draggable popover ──
-function NodePopover({ node, position, desks, groups, deskStates, onClose }) {
-  const [artifact, setArtifact] = useState(null)
+// ── Draggable popover with tabs ──
+function NodePopover({ node, position, desks, groups, resources, deskStates, events, onClose }) {
+  const [tab, setTab] = useState('info')
   const [profile, setProfile] = useState(null)
   const [session, setSession] = useState(null)
-  const [sessionOpen, setSessionOpen] = useState(false)
   const [pos, setPos] = useState(position)
   const [dragging, setDragging] = useState(false)
   const dragRef = useRef({ startX: 0, startY: 0, origX: 0, origY: 0 })
   const popRef = useRef(null)
+  const chatEndRef = useRef(null)
   const kind = node?.data?.nodeKind
   const id = node?.id
 
   useEffect(() => { setPos(position) }, [position])
 
   useEffect(() => {
-    setArtifact(null); setProfile(null); setSession(null); setSessionOpen(false)
-    if (!id || kind !== 'desk') return
-    api.fetchDeskArtifact(id).then(setArtifact).catch(() => {})
-    api.fetchDeskProfile(id).then(setProfile).catch(() => {})
-    api.fetchDeskSession(id).then(setSession).catch(() => {})
+    setProfile(null); setSession(null); setTab('info')
+    if (!id || (kind !== 'desk' && kind !== 'group')) return
+    if (kind === 'desk') {
+      api.fetchDeskProfile(id).then(setProfile).catch(() => {})
+    }
+    // Merge session + logs
+    Promise.all([
+      api.fetchDeskSession(id).catch(() => []),
+      api.fetchDeskLogs(id).catch(() => []),
+    ]).then(([sess, logs]) => {
+      const timeline = [
+        ...(sess || []).map(e => ({ ...e, _kind: e.role === 'user' ? 'in' : 'out' })),
+        ...(logs || []).map(e => ({ role: e.type, content: e.content, at: e.at, _kind: 'log' })),
+      ].sort((a, b) => new Date(a.at) - new Date(b.at))
+      setSession(timeline)
+    })
   }, [id, kind])
+
+  // Poll session+logs every 3s while desk is working
+  const status = (deskStates[id] || {}).status
+  useEffect(() => {
+    if (!id || (kind !== 'desk' && kind !== 'group') || status !== 'working') return
+    const poll = setInterval(() => {
+      Promise.all([
+        api.fetchDeskSession(id).catch(() => []),
+        api.fetchDeskLogs(id).catch(() => []),
+      ]).then(([sess, logs]) => {
+        const timeline = [
+          ...(sess || []).map(e => ({ ...e, _kind: e.role === 'user' ? 'in' : 'out' })),
+          ...(logs || []).map(e => ({ role: e.type, content: e.content, at: e.at, _kind: 'log' })),
+        ].sort((a, b) => new Date(a.at) - new Date(b.at))
+        setSession(timeline)
+      })
+    }, 3000)
+    return () => clearInterval(poll)
+  }, [id, kind, status])
+
+  // Auto-scroll chat
+  useEffect(() => {
+    if (tab === 'chat' && chatEndRef.current) chatEndRef.current.scrollIntoView({ behavior: 'smooth' })
+  }, [tab, session?.length])
 
   // Close on outside click
   useEffect(() => {
-    const handler = (e) => {
-      if (popRef.current && !popRef.current.contains(e.target)) onClose()
-    }
+    const handler = (e) => { if (popRef.current && !popRef.current.contains(e.target)) onClose() }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
   }, [onClose])
 
   // Drag logic
   const onDragStart = useCallback((e) => {
-    if (e.target.closest('.pop-close')) return
+    if (e.target.closest('.pop-close') || e.target.closest('.pop-tab')) return
     setDragging(true)
     dragRef.current = { startX: e.clientX, startY: e.clientY, origX: pos.x, origY: pos.y }
   }, [pos])
-
   useEffect(() => {
     if (!dragging) return
     const onMove = (e) => {
-      const dx = e.clientX - dragRef.current.startX
-      const dy = e.clientY - dragRef.current.startY
-      setPos({ x: dragRef.current.origX + dx, y: dragRef.current.origY + dy })
+      setPos({ x: dragRef.current.origX + (e.clientX - dragRef.current.startX), y: dragRef.current.origY + (e.clientY - dragRef.current.startY) })
     }
     const onUp = () => setDragging(false)
     window.addEventListener('mousemove', onMove)
@@ -181,93 +212,142 @@ function NodePopover({ node, position, desks, groups, deskStates, onClose }) {
 
   const state = deskStates[id] || { status: 'idle' }
   const deskName = node.data.label || id
-
-  let emitList = [], subList = []
-  if (kind === 'group') {
-    const g = groups[id] || {}
-    emitList = g.emit || []; subList = g.subscribe || []
-  } else if (kind === 'desk') {
-    const d = desks[id] || {}
-    emitList = d.emit || []; subList = d.subscribe || []
-  } else if (kind === 'system') {
-    emitList = [id.startsWith('sys:') ? id.slice(4) : id]
-  }
-
+  const desk = desks[id] || {}
+  const group = groups[id] || {}
   const fmtMs = ms => { const s = Math.floor(ms / 1000); return s < 60 ? s + 's' : Math.floor(s / 60) + 'm ' + (s % 60) + 's' }
+
+  // Collect emit/subscribe
+  let emitList = [], subList = []
+  if (kind === 'group') { emitList = group.emit || []; subList = group.subscribe || [] }
+  else if (kind === 'desk') { emitList = desk.emit || []; subList = desk.subscribe || [] }
+  else if (kind === 'system') { emitList = [id.startsWith('sys:') ? id.slice(4) : id] }
+
+  // Find member desks for a group
+  const memberDesks = kind === 'group' ? Object.entries(desks).filter(([,d]) => d.parent === id).map(([did]) => did) : []
+
+  // Find connected resources
+  const connectedRes = kind === 'desk' ? (desk.resources || []) : kind === 'group' ? (group.resources || []) : []
+
+  // Past runs for this scope
+  const scopeEvents = (events || []).filter(e => e.step_id === id)
+  const runMap = {}
+  for (const ev of scopeEvents) {
+    if (!ev.run_id) continue
+    if (!runMap[ev.run_id]) runMap[ev.run_id] = { run_id: ev.run_id, status: 'running', events: [] }
+    runMap[ev.run_id].events.push(ev)
+    if (ev.type === 'step.completed') runMap[ev.run_id].status = 'completed'
+    if (ev.type === 'step.failed') { runMap[ev.run_id].status = 'failed'; runMap[ev.run_id].error = ev.error }
+    if (ev.duration_ms) runMap[ev.run_id].duration = ev.duration_ms
+    if (!runMap[ev.run_id].at || ev.at < runMap[ev.run_id].at) runMap[ev.run_id].at = ev.at
+  }
+  const pastRuns = Object.values(runMap).sort((a, b) => (b.at || '') > (a.at || '') ? 1 : -1)
+
+  const tabs = kind === 'system' ? ['info'] : ['info', 'chat', 'history']
 
   return (
     <div ref={popRef} className="node-popover" style={{ left: pos.x, top: pos.y }}>
       <div className="pop-header" onMouseDown={onDragStart}>
         <span className="pop-title">{deskName}</span>
+        <span className={`pop-status-dot pop-st-${state.status}`} />
         <span className="pop-kind">{kind}</span>
         <button className="pop-close" onClick={onClose}>×</button>
       </div>
 
+      {tabs.length > 1 && (
+        <div className="pop-tabs">
+          {tabs.map(t => (
+            <button key={t} className={`pop-tab ${tab === t ? 'pop-tab-active' : ''}`} onClick={() => setTab(t)}>
+              {t === 'info' ? 'Info' : t === 'chat' ? `Chat${session?.length ? ` (${session.length})` : ''}` : 'History'}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="pop-body">
-        {kind === 'desk' && (
+        {/* ── INFO TAB ── */}
+        {tab === 'info' && kind === 'desk' && (
           <>
-            <div className="pop-row">
-              <span className="pop-label">Status</span>
-              <span className={`pop-status pop-st-${state.status}`}>{state.status}</span>
-            </div>
-            {desks[id]?.description && <div className="pop-row"><span className="pop-label">Desc</span><span>{desks[id].description}</span></div>}
+            <div className="pop-row"><span className="pop-label">Status</span><span className={`pop-status pop-st-${state.status}`}>{state.status}</span></div>
+            <div className="pop-row"><span className="pop-label">Agent</span><span>{desk.agent?.id || '—'}</span></div>
+            {desk.role && <div className="pop-row"><span className="pop-label">Role</span><span>{desk.role}</span></div>}
+            {desk.goal && <div className="pop-row"><span className="pop-label">Goal</span><span>{desk.goal}</span></div>}
+            {desk.parent && <div className="pop-row"><span className="pop-label">Group</span><span>{desk.parent}</span></div>}
+            {desk.skills?.length > 0 && <div className="pop-row"><span className="pop-label">Skills</span><span>{desk.skills.join(', ')}</span></div>}
+            {connectedRes.length > 0 && <div className="pop-row"><span className="pop-label">Resources</span><span>{connectedRes.join(', ')}</span></div>}
+            {subList.length > 0 && <div className="pop-row"><span className="pop-label">Subscribe</span><span>{subList.join(', ')}</span></div>}
+            {emitList.length > 0 && <div className="pop-row"><span className="pop-label">Emit</span><span className="pop-emit-text">{emitList.join(', ')}</span></div>}
+            <div className="pop-row"><span className="pop-label">Executor</span><span>{desk.executor?.type || '—'}</span></div>
             {state.runID && <div className="pop-row"><span className="pop-label">Run</span><code className="pop-code">{state.runID}</code></div>}
             {state.durationMs > 0 && <div className="pop-row"><span className="pop-label">Time</span><span>{fmtMs(state.durationMs)}</span></div>}
             {state.error && <div className="pop-row"><span className="pop-label">Error</span><span className="pop-error">{state.error}</span></div>}
             {profile && (
               <>
-                <div className="pop-row"><span className="pop-label">Runs</span><span>{profile.total_runs}</span></div>
-                <div className="pop-row"><span className="pop-label">Rate</span><span>{(profile.success_rate * 100).toFixed(0)}%</span></div>
+                <div className="pop-row"><span className="pop-label">Total Runs</span><span>{profile.total_runs}</span></div>
+                <div className="pop-row"><span className="pop-label">Success</span><span>{(profile.success_rate * 100).toFixed(0)}%</span></div>
                 {profile.estimated_cost > 0 && <div className="pop-row"><span className="pop-label">Cost</span><span>${profile.estimated_cost.toFixed(4)}</span></div>}
               </>
             )}
-            {artifact && (
-              <div className="pop-section">
-                <span className="pop-label">Result</span>
-                <pre className="pop-artifact">{artifact}</pre>
-              </div>
-            )}
-            {session && session.length > 0 && (
-              <div className="pop-section">
-                <button className="pop-toggle" onClick={() => setSessionOpen(v => !v)}>
-                  Chat ({session.length}) {sessionOpen ? '▲' : '▼'}
-                </button>
-                {sessionOpen && (
-                  <div className="pop-chat">
-                    {session.map((e, i) => {
-                      const isOut = e.role === 'assistant'
-                      return (
-                        <div key={i} className={`chat-msg ${isOut ? 'chat-msg-out' : 'chat-msg-in'}`}>
-                          <div>
-                            <span className="chat-sender">{isOut ? deskName : 'Task'}</span>
-                            <span className="chat-time">{new Date(e.at).toLocaleTimeString()}</span>
-                          </div>
-                          <div className="chat-text">{e.content.length > 400 ? e.content.slice(0, 400) + '…' : e.content}</div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
+            <EmitActions emit={emitList} subscribe={subList} sourceId={id} />
           </>
         )}
 
-        {kind === 'group' && (
+        {tab === 'info' && kind === 'group' && (
           <>
-            {groups[id]?.description && <div className="pop-row"><span className="pop-label">Desc</span><span>{groups[id].description}</span></div>}
-            <div className="pop-row"><span className="pop-label">Mode</span><span>{groups[id]?.dispatch || 'sequential'}</span></div>
-            {groups[id]?.lead && <div className="pop-row"><span className="pop-label">Lead</span><span>{groups[id].lead.desk}</span></div>}
-            {groups[id]?.desks?.length > 0 && <div className="pop-row"><span className="pop-label">Desks</span><span>{groups[id].desks.join(', ')}</span></div>}
+            <div className="pop-row"><span className="pop-label">Status</span><span className={`pop-status pop-st-${state.status}`}>{state.status}</span></div>
+            {group.description && <div className="pop-row"><span className="pop-label">Desc</span><span>{group.description}</span></div>}
+            <div className="pop-row"><span className="pop-label">Mode</span><span>{group.dispatch || 'sequential'}</span></div>
+            {memberDesks.length > 0 && <div className="pop-row"><span className="pop-label">Desks</span><span>{memberDesks.join(', ')}</span></div>}
+            {connectedRes.length > 0 && <div className="pop-row"><span className="pop-label">Resources</span><span>{connectedRes.join(', ')}</span></div>}
+            {subList.length > 0 && <div className="pop-row"><span className="pop-label">Subscribe</span><span>{subList.join(', ')}</span></div>}
+            {emitList.length > 0 && <div className="pop-row"><span className="pop-label">Emit</span><span className="pop-emit-text">{emitList.join(', ')}</span></div>}
+            <EmitActions emit={emitList} subscribe={subList} sourceId={id} />
           </>
         )}
 
-        {kind === 'system' && (
-          <div className="pop-row"><span className="pop-label">Type</span><span>System Event</span></div>
+        {tab === 'info' && kind === 'system' && (
+          <>
+            <div className="pop-row"><span className="pop-label">Type</span><span>System Event</span></div>
+            <EmitActions emit={emitList} subscribe={subList} sourceId={id} />
+          </>
         )}
 
-        {(emitList.length > 0 || subList.length > 0) && (
-          <EmitActions emit={emitList} subscribe={subList} sourceId={id} />
+        {/* ── CHAT TAB ── */}
+        {tab === 'chat' && (
+          <div className="pop-chat">
+            {(!session || session.length === 0) && <div className="pop-empty">No messages yet</div>}
+            {session && session.map((e, i) => {
+              const k = e._kind || (e.role === 'user' ? 'in' : 'out')
+              const cls = k === 'log' ? 'chat-msg-log' : k === 'in' ? 'chat-msg-in' : 'chat-msg-out'
+              const sender = k === 'log' ? (e.role === 'step' ? 'progress' : 'result')
+                : k === 'in' ? 'Task' : deskName
+              return (
+                <div key={i} className={`chat-msg ${cls}`}>
+                  <div><span className="chat-sender">{sender}</span><span className="chat-time">{new Date(e.at).toLocaleTimeString()}</span></div>
+                  <div className="chat-text">{e.content.length > 400 ? e.content.slice(0, 400) + '...' : e.content}</div>
+                </div>
+              )
+            })}
+            <div ref={chatEndRef} />
+          </div>
+        )}
+
+        {/* ── HISTORY TAB ── */}
+        {tab === 'history' && (
+          <div className="pop-history">
+            {pastRuns.length === 0 && <div className="pop-empty">No runs yet</div>}
+            {pastRuns.map((r, i) => {
+              const dot = r.status === 'completed' ? 'var(--green)' : r.status === 'failed' ? 'var(--red)' : 'var(--cyan)'
+              return (
+                <div key={i} className="pop-run-row">
+                  <span className="pop-run-dot" style={{ background: dot }} />
+                  <span className="pop-run-time">{r.at ? new Date(r.at).toLocaleString() : '—'}</span>
+                  <span className="pop-run-status">{r.status}</span>
+                  {r.duration > 0 && <span className="pop-run-dur">{fmtMs(r.duration)}</span>}
+                  {r.error && <div className="pop-run-error">{r.error}</div>}
+                </div>
+              )
+            })}
+          </div>
         )}
       </div>
     </div>
@@ -321,12 +401,48 @@ function EmitActions({ emit, subscribe, sourceId }) {
   )
 }
 
+// ── Edge popover — shows recent events of a given type ──
+function EdgePopover({ edgeLabel, events, position, onClose }) {
+  const popRef = useRef(null)
+  useEffect(() => {
+    const handler = (e) => { if (popRef.current && !popRef.current.contains(e.target)) onClose() }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [onClose])
+
+  // Find events matching this edge label (event type pattern)
+  const matching = (events || []).filter(ev => {
+    const t = ev.type || ''
+    return t === edgeLabel || t.endsWith('.' + edgeLabel)
+  }).slice(-10).reverse()
+
+  return (
+    <div ref={popRef} className="edge-popover" style={{ left: position.x, top: position.y }}>
+      <div className="edge-pop-header">
+        <span className="edge-pop-label">{edgeLabel}</span>
+        <button className="pop-close" onClick={onClose}>×</button>
+      </div>
+      <div className="edge-pop-body">
+        {matching.length === 0 && <div className="pop-empty">No recent events</div>}
+        {matching.map((ev, i) => (
+          <div key={ev.at + ev.type + (ev.step_id || '') + i} className="edge-pop-row">
+            <span className="edge-pop-time">{new Date(ev.at).toLocaleTimeString()}</span>
+            <span className="edge-pop-type">{ev.type}</span>
+            <span className="edge-pop-step">{ev.step_id || '—'}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export default function GraphView({ org, desks, groups, resources, deskStates, queues, selected, onSelect, events }) {
   const [popover, setPopover] = useState(null)
+  const [edgePopover, setEdgePopover] = useState(null)
   const [bubbles, setBubbles] = useState({})
   const draggedPositions = useRef({})
 
-  // Poll for bubble text — show latest artifact or last assistant response
+  // Poll for bubble text — show last assistant response from session
   useEffect(() => {
     const allDeskIds = Object.keys(desks)
     if (!allDeskIds.length) return
@@ -337,16 +453,9 @@ export default function GraphView({ org, desks, groups, resources, deskStates, q
         const st = deskStates[id]?.status
         if (st !== 'working' && st !== 'done' && st !== 'error') continue
         try {
-          // Try artifact first
-          const art = await api.fetchDeskArtifact(id)
-          if (art) {
-            next[id] = art
-            continue
-          }
-          // Fall back to last assistant message
           const sess = await api.fetchDeskSession(id)
           if (sess?.length > 0) {
-            const last = sess.find(e => e.role === 'assistant') || sess[0]
+            const last = sess.findLast(e => e.role === 'assistant') || sess.findLast(e => e.role === 'result') || sess[sess.length - 1]
             next[id] = last.content || ''
           }
         } catch {}
@@ -358,10 +467,35 @@ export default function GraphView({ org, desks, groups, resources, deskStates, q
     return () => clearInterval(t)
   }, [Object.keys(desks).join(','), Object.entries(deskStates).map(([k, v]) => k + v.status).join(',')])
 
+  const prevEventDerived = useRef({ lastRunMap: {}, retryCountMap: {}, recentEventTypes: new Set() })
+  const { lastRunMap, retryCountMap, recentEventTypes } = useMemo(() => {
+    const lrm = {}, rcm = {}
+    const recent = new Set()
+    const now = Date.now()
+    for (let i = (events || []).length - 1; i >= 0; i--) {
+      const ev = events[i]
+      if (ev.type === 'step.started' && ev.step_id) lrm[ev.step_id] = ev.at
+      if ((ev.type || '').match(/\.(failed|rejected)$/) && ev.step_id)
+        rcm[ev.step_id] = (rcm[ev.step_id] || 0) + 1
+      if (ev.at && (now - new Date(ev.at).getTime()) < 10000) recent.add(ev.type)
+    }
+    // Return previous refs if data hasn't changed to keep downstream memos stable
+    const prev = prevEventDerived.current
+    const lrmKeys = Object.keys(lrm), prevLrmKeys = Object.keys(prev.lastRunMap)
+    const rcmKeys = Object.keys(rcm), prevRcmKeys = Object.keys(prev.retryCountMap)
+    const lrmSame = lrmKeys.length === prevLrmKeys.length && lrmKeys.every(k => lrm[k] === prev.lastRunMap[k])
+    const rcmSame = rcmKeys.length === prevRcmKeys.length && rcmKeys.every(k => rcm[k] === prev.retryCountMap[k])
+    const recentSame = recent.size === prev.recentEventTypes.size && [...recent].every(v => prev.recentEventTypes.has(v))
+    if (lrmSame && rcmSame && recentSame) return prev
+    const next = { lastRunMap: lrm, retryCountMap: rcm, recentEventTypes: recent }
+    prevEventDerived.current = next
+    return next
+  }, [events])
+
   const initial = useMemo(() => {
     if (!org) return { nodes: [], edges: [] }
-    return buildGraph(org, desks, groups, resources || {}, deskStates, queues, events || [], bubbles)
-  }, [org, desks, groups, resources, deskStates, queues, events, bubbles])
+    return buildGraph(org, desks, groups, resources || {}, deskStates, queues, bubbles, lastRunMap, retryCountMap, recentEventTypes)
+  }, [org, desks, groups, resources, deskStates, queues, bubbles, lastRunMap, retryCountMap, recentEventTypes])
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(initial.edges)
@@ -393,8 +527,18 @@ export default function GraphView({ org, desks, groups, resources, deskStates, q
     }
   }, [onSelect])
 
+  const onEdgeClick = useCallback((event, edge) => {
+    const bounds = event.currentTarget.closest('.react-flow')?.getBoundingClientRect()
+    if (bounds && edge.label) {
+      const x = Math.min(event.clientX - bounds.left + 10, bounds.width - 280)
+      const y = Math.min(event.clientY - bounds.top - 10, bounds.height - 200)
+      setEdgePopover({ label: edge.label, position: { x: Math.max(x, 10), y: Math.max(y, 10) } })
+    }
+  }, [])
+
   const onPaneClick = useCallback(() => {
     setPopover(null)
+    setEdgePopover(null)
     onSelect(null)
   }, [onSelect])
 
@@ -407,7 +551,7 @@ export default function GraphView({ org, desks, groups, resources, deskStates, q
           onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
           nodeTypes={nodeTypes}
           onNodeClick={onNodeClick} onNodeDragStop={onNodeDragStop}
-          onPaneClick={onPaneClick}
+          onEdgeClick={onEdgeClick} onPaneClick={onPaneClick}
           fitView fitViewOptions={{ padding: 0.3 }}
           proOptions={{ hideAttribution: true }}
           minZoom={0.08} maxZoom={2.5}
@@ -421,8 +565,15 @@ export default function GraphView({ org, desks, groups, resources, deskStates, q
         {popover && (
           <NodePopover
             node={popover.node} position={popover.position}
-            desks={desks} groups={groups} deskStates={deskStates}
+            desks={desks} groups={groups} resources={resources} deskStates={deskStates} events={events}
             onClose={() => { setPopover(null); onSelect(null) }}
+          />
+        )}
+        {edgePopover && (
+          <EdgePopover
+            edgeLabel={edgePopover.label} events={events}
+            position={edgePopover.position}
+            onClose={() => setEdgePopover(null)}
           />
         )}
       </div>
@@ -431,7 +582,7 @@ export default function GraphView({ org, desks, groups, resources, deskStates, q
 }
 
 // ═══════════════════════════════════════════
-function buildGraph(org, desks, groups, resources, deskStates, queues, events, bubbles) {
+function buildGraph(org, desks, groups, resources, deskStates, queues, bubbles, lastRunMap, retryCountMap, recentEventTypes) {
   const rawNodes = []
   const rawEdges = []
   const routing = org?.routing || []
@@ -445,10 +596,6 @@ function buildGraph(org, desks, groups, resources, deskStates, queues, events, b
     for (const ev of (d.emit || [])) (emitMap[ev] = emitMap[ev] || []).push(id)
     for (const ev of (d.subscribe || [])) (subMap[ev] = subMap[ev] || []).push(id)
   }
-
-  const lastRunMap = {}
-  for (const ev of events)
-    if (ev.type === 'step.started' && ev.step_id) lastRunMap[ev.step_id] = ev.at
 
   const deskToGroup = {}
   for (const [id, d] of Object.entries(desks)) {
@@ -466,23 +613,61 @@ function buildGraph(org, desks, groups, resources, deskStates, queues, events, b
     for (const sub of subs) rawEdges.push({ id: `${sysId}-${sub}`, source: sysId, target: sub, kind: 'system' })
   }
 
+  // Build parent→children maps for groups
+  const groupToSubGroups = {} // groupID → [subGroupIDs]
+  const groupToDesks = {}     // groupID → [deskIDs]
+  const groupParent = {}      // groupID → parentGroupID
+  for (const [id, g] of Object.entries(groups)) {
+    if (g.parent && groups[g.parent]) {
+      groupParent[id] = g.parent;
+      (groupToSubGroups[g.parent] = groupToSubGroups[g.parent] || []).push(id)
+    }
+  }
+  for (const [id, d] of Object.entries(desks)) {
+    if (d.parent && groups[d.parent]) {
+      (groupToDesks[d.parent] = groupToDesks[d.parent] || []).push(id)
+    }
+  }
+
+  // Bottom-up size calculation for groups
+  const groupSize = {}
+  const calcGroupSize = (gid) => {
+    if (groupSize[gid]) return groupSize[gid]
+    const childDesksHere = (groupToDesks[gid] || []).sort()
+    const childGroups = (groupToSubGroups[gid] || []).sort()
+
+    // Size of desks in this group
+    const dCols = Math.min(Math.max(childDesksHere.length, 1), 3)
+    const dRows = Math.ceil(childDesksHere.length / dCols)
+    let contentW = dCols * 218
+    let contentH = dRows * 72
+
+    // Add sub-group sizes
+    for (const sg of childGroups) {
+      const sz = calcGroupSize(sg)
+      contentW = Math.max(contentW, sz.w + 28)
+      contentH += sz.h + 10
+    }
+
+    const w = Math.max(260, contentW + 28)
+    const h = Math.max(100, contentH + 56)
+    groupSize[gid] = { w, h }
+    return { w, h }
+  }
+  for (const gid of Object.keys(groups)) calcGroupSize(gid)
+
   // Groups
   for (const [id, g] of Object.entries(groups)) {
-    const allDesks = Object.entries(desks).filter(([, d]) => d.parent === id).map(([did]) => did)
+    const allDesks = (groupToDesks[id] || [])
     const status = getGroupStatus(allDesks, deskStates)
-    const qd = (queues[id] || 0) + allDesks.reduce((s, d) => s + (queues[d] || 0), 0)
-    const deskCount = allDesks.length
-    const cols = Math.min(deskCount, 3)
-    const rows = Math.ceil(deskCount / cols)
-    const roomW = Math.max(260, cols * 230 + 30)
-    const roomH = Math.max(130, rows * 100 + 60)
+    const sz = groupSize[id] || { w: 260, h: 100 }
     rawNodes.push({
-      id, type: 'groupnode', width: roomW, height: roomH,
+      id, type: 'groupnode', width: sz.w, height: sz.h,
       data: {
         label: g.name || id, nodeKind: 'group',
-        dispatch: g.dispatch || 'sequential', status, deskCount,
+        dispatch: g.dispatch || 'sequential', status, deskCount: allDesks.length,
         subscribe: g.subscribe, emit: g.emit,
-        queueDepth: qd, lastRun: fmtAgo(lastRunMap[id]), cron: g.cron,
+        queueDepth: queues[id] || 0, lastRun: fmtAgo(lastRunMap[id]), cron: g.cron,
       },
     })
   }
@@ -490,14 +675,16 @@ function buildGraph(org, desks, groups, resources, deskStates, queues, events, b
   // Desks
   for (const [id, d] of Object.entries(desks)) {
     const status = deskStates[id]?.status || 'idle'
-    const gid = deskToGroup[id]
     rawNodes.push({
       id, type: 'desknode', width: 200, height: 56,
       data: {
         label: d.name || id, nodeKind: 'desk',
         status, subscribe: d.subscribe, emit: d.emit,
         lastRun: fmtAgo(lastRunMap[id]),
-        bubble: bubbles[id] || null,
+        retryCount: retryCountMap[id] || 0,
+        bubble: deskStates[id]?.logs?.length
+          ? deskStates[id].logs[deskStates[id].logs.length - 1].content
+          : deskStates[id]?.input || bubbles[id] || null,
       },
     })
   }
@@ -514,15 +701,33 @@ function buildGraph(org, desks, groups, resources, deskStates, queues, events, b
     }
   }
 
-  // Direct emit→subscribe edges
-  for (const [ev, emitters] of Object.entries(emitMap)) {
-    for (const src of emitters) {
-      for (const tgt of (subMap[ev] || [])) {
-        if (src === tgt) continue
-        const key = `${src}→${ev}→${tgt}`
+  // Subscribe-based edges: parse "{sourceID}.done" patterns to link desks/groups
+  const allIds = new Set([...Object.keys(desks), ...Object.keys(groups)])
+  const allSubscribers = [...Object.entries(desks), ...Object.entries(groups)]
+  for (const [tgt, entity] of allSubscribers) {
+    for (const pattern of (entity.subscribe || [])) {
+      // Extract source from patterns like "architect.done", "dev-team.architect.done", "dev-team.*"
+      const parts = pattern.split('.')
+      const srcId = parts[0]
+      if (allIds.has(srcId) && srcId !== tgt) {
+        const key = `${srcId}→${pattern}→${tgt}`
         if (edgeSet.has(key)) continue
         edgeSet.add(key)
-        rawEdges.push({ id: key, source: src, target: tgt, kind: 'subscribe', label: ev })
+        // Detect failure/rejection feedback loops
+        const isFailure = pattern.includes('.failed') || pattern.includes('.rejected')
+        rawEdges.push({ id: key, source: srcId, target: tgt, kind: isFailure ? 'failure' : 'subscribe', label: pattern })
+      }
+    }
+  }
+  // Also connect system events (task.created etc) to subscribers
+  for (const [tgt, entity] of allSubscribers) {
+    for (const pattern of (entity.subscribe || [])) {
+      const sysId = 'sys:' + pattern
+      if (rawNodes.some(n => n.id === sysId)) {
+        const key = `${sysId}→${pattern}→${tgt}`
+        if (edgeSet.has(key)) continue
+        edgeSet.add(key)
+        rawEdges.push({ id: key, source: sysId, target: tgt, kind: 'system' })
       }
     }
   }
@@ -547,28 +752,48 @@ function buildGraph(org, desks, groups, resources, deskStates, queues, events, b
       rawEdges.push({ id: `res:${id}-${uid}`, source: 'res:' + id, target: uid, kind: 'resource' })
   }
 
-  // Dagre layout — top-level only
+  // Determine what's a "child" (has a parent group or parent desk-group)
+  const childOf = {} // id → parentId
+  for (const [id, d] of Object.entries(desks)) {
+    if (d.parent && groups[d.parent]) childOf[id] = d.parent
+  }
+  for (const [id, g] of Object.entries(groups)) {
+    if (g.parent && groups[g.parent]) childOf[id] = g.parent
+  }
+  const isChild = (id) => !!childOf[id]
+
+  // Find the top-level ancestor for edge mapping
+  const topAncestor = (id) => {
+    let cur = id
+    while (childOf[cur]) cur = childOf[cur]
+    return cur
+  }
+
+  // Dagre layout — top-level nodes only
   const g = new dagre.graphlib.Graph()
   g.setDefaultEdgeLabel(() => ({}))
-  g.setGraph({ rankdir: 'LR', ranksep: 120, nodesep: 50, edgesep: 25, marginx: 40, marginy: 40 })
-
-  const childDesks = new Set(Object.keys(deskToGroup).filter(d => deskToGroup[d]))
+  g.setGraph({ rankdir: 'LR', ranksep: 100, nodesep: 40, edgesep: 20, marginx: 40, marginy: 40 })
 
   for (const n of rawNodes) {
-    if (childDesks.has(n.id)) continue
+    if (isChild(n.id)) continue
     g.setNode(n.id, { width: n.width, height: n.height })
   }
   for (const e of rawEdges) {
     if (e.kind === 'resource') continue
-    if (childDesks.has(e.source) || childDesks.has(e.target)) continue
-    g.setEdge(e.source, e.target)
+    const src = topAncestor(e.source)
+    const tgt = topAncestor(e.target)
+    if (!src || !tgt || src === tgt) continue
+    if (!g.hasNode(src) || !g.hasNode(tgt)) continue
+    g.setEdge(src, tgt)
   }
   dagre.layout(g)
 
+  // Place top-level nodes
   const nodes = []
   for (const n of rawNodes) {
-    if (childDesks.has(n.id)) continue
+    if (isChild(n.id)) continue
     const pos = g.node(n.id)
+    if (!pos) continue
     nodes.push({
       id: n.id, type: n.type,
       position: { x: pos.x - n.width / 2, y: pos.y - n.height / 2 },
@@ -577,26 +802,47 @@ function buildGraph(org, desks, groups, resources, deskStates, queues, events, b
     })
   }
 
-  // Child desks inside groups
+  // Place children (sub-groups and desks) inside their parent
+  // Process in order: sub-groups first, then desks
   for (const n of rawNodes) {
-    if (!childDesks.has(n.id)) continue
-    const gid = deskToGroup[n.id]
-    const allDesksInGroup = Object.keys(deskToGroup).filter(d => deskToGroup[d] === gid)
-    const idx = allDesksInGroup.indexOf(n.id)
-    const numCols = Math.max(1, Math.min(allDesksInGroup.length, 3))
-    const col = idx % numCols
-    const row = Math.floor(idx / numCols)
+    if (!isChild(n.id)) continue
+    const pid = childOf[n.id]
+    // Gather siblings of same type
+    const isGroup = !!groups[n.id]
+    const siblings = Object.keys(isGroup ? groups : desks)
+      .filter(id => childOf[id] === pid && !!groups[id] === isGroup)
+      .sort()
+    const idx = siblings.indexOf(n.id)
+
+    // Layout: desks in grid (3 cols), sub-groups stacked vertically
+    let x, y
+    if (isGroup) {
+      // Sub-groups stack vertically below the header
+      const deskRows = Math.ceil((groupToDesks[pid] || []).length / 3)
+      x = 14
+      y = 46 + deskRows * 72 + idx * ((groupSize[n.id]?.h || 100) + 10)
+    } else {
+      const numCols = Math.min(Math.max(siblings.length, 1), 3)
+      const col = idx % numCols
+      const row = Math.floor(idx / numCols)
+      x = 14 + col * 218
+      y = 46 + row * 72
+    }
+
     nodes.push({
       id: n.id, type: n.type,
-      position: { x: 14 + col * 218, y: 46 + row * 72 },
-      parentNode: gid, extent: 'parent',
+      position: { x, y },
+      parentNode: pid, extent: 'parent',
       data: n.data,
+      style: n.type === 'groupnode' ? { width: n.width, height: n.height } : undefined,
     })
   }
 
   // Style edges
   const styledEdges = rawEdges.map(e => {
-    const active = deskStates[e.source]?.status === 'working' || deskStates[e.target]?.status === 'working'
+    const nodeActive = deskStates[e.source]?.status === 'working' || deskStates[e.target]?.status === 'working'
+    const edgeFired = e.label && recentEventTypes.has(e.label)
+    const active = nodeActive || edgeFired
     if (e.kind === 'routing') {
       const color = active ? '#00ccff' : '#4a5a70'
       return {
@@ -619,6 +865,19 @@ function buildGraph(org, desks, groups, resources, deskStates, queues, events, b
         labelBgStyle: { fill: '#12151c', fillOpacity: 0.9 },
         labelBgPadding: [4, 2], labelBgBorderRadius: 3,
         markerEnd: { type: MarkerType.ArrowClosed, color: '#3a4a60', width: 10, height: 10 },
+      }
+    }
+    if (e.kind === 'failure') {
+      const color = active ? '#ff4466' : '#5a2030'
+      return {
+        id: e.id, source: e.source, target: e.target, type: 'smoothstep',
+        label: e.label,
+        animated: active,
+        style: { stroke: color, strokeWidth: active ? 2 : 1.2, strokeDasharray: '6 3' },
+        labelStyle: { fill: '#ff8899', fontSize: 9, fontWeight: 600, fontFamily: "'JetBrains Mono', monospace" },
+        labelBgStyle: { fill: '#1e0c10', fillOpacity: 0.95 },
+        labelBgPadding: [6, 3], labelBgBorderRadius: 4,
+        markerEnd: { type: MarkerType.ArrowClosed, color, width: 12, height: 12 },
       }
     }
     if (e.kind === 'resource') {

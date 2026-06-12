@@ -42,3 +42,13 @@
 .ev-err .ev-type { color: var(--red); }
 .ev-err { background: var(--red-light); }
 .ev-other .ev-type { color: var(--text2); }
+.ev-log .ev-type { color: #ffcc33; }
+.ev-log .ev-step { color: var(--text2); }
+.ev-human .ev-type { color: var(--indigo); }
+.ev-human { background: rgba(123,127,240,0.04); }
+.ev-human-icon {
+  font-size: 7px; font-weight: 700; color: var(--indigo);
+  background: rgba(123,127,240,0.15); border: 1px solid rgba(123,127,240,0.3);
+  padding: 1px 4px; border-radius: 3px; flex-shrink: 0;
+  font-family: 'JetBrains Mono', monospace; letter-spacing: 0.5px;
+}

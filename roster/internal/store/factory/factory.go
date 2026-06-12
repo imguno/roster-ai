@@ -2,35 +2,31 @@ package factory
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/roster-io/roster/internal/store"
-	filestore "github.com/roster-io/roster/internal/store/file"
 	"github.com/roster-io/roster/internal/store/memory"
 	"github.com/roster-io/roster/internal/store/sqlite"
 	"github.com/roster-io/roster/pkg/types"
 )
 
 // New creates a Store from the given configuration.
-// Supported backends: "file" (default), "sqlite", "memory".
+// Supported backends: "sqlite" (default), "memory".
+// The legacy "file" backend now maps to sqlite.
 func New(cfg types.StoreConfig, projectDir string) (store.Store, error) {
 	backend := cfg.Backend
 	if backend == "" {
-		backend = "file"
+		backend = "sqlite"
 	}
 
 	switch backend {
-	case "file":
-		dir := cfg.Path
-		if dir == "" {
-			dir = filepath.Join(projectDir, ".roster", "data")
-		}
-		return filestore.New(dir)
-
-	case "sqlite":
+	case "file", "sqlite":
 		dbPath := cfg.Path
 		if dbPath == "" {
-			dbPath = filepath.Join(projectDir, ".roster", "data", "roster.db")
+			dir := filepath.Join(projectDir, ".roster", "data")
+			_ = os.MkdirAll(dir, 0750)
+			dbPath = filepath.Join(dir, "roster.db")
 		}
 		return sqlite.New(dbPath)
 
@@ -38,6 +34,6 @@ func New(cfg types.StoreConfig, projectDir string) (store.Store, error) {
 		return memory.New(), nil
 
 	default:
-		return nil, fmt.Errorf("store: unknown backend %q (supported: file, sqlite, memory)", backend)
+		return nil, fmt.Errorf("store: unknown backend %q (supported: sqlite, memory)", backend)
 	}
 }

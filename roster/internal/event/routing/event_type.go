@@ -68,7 +68,3 @@ func DetermineEventType(declaredType string, payload []byte) string {
 	return declaredType
 }
 
-// IsSkip returns true if the artifact payload starts with "SKIP".
-func IsSkip(payload []byte) bool {
-	return strings.HasPrefix(strings.TrimSpace(string(payload)), "SKIP")
-}

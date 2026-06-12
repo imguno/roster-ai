@@ -9,7 +9,7 @@ import (
 // Executor is the interface every execution backend must implement.
 // Community members implement this to connect any AI, CLI, or service to Roster.
 type Executor interface {
-	Run(ctx context.Context, task Task) (*types.Artifact, error)
+	Run(ctx context.Context, task Task) (*types.Output, error)
 }
 
 // Task is the unit of work handed to an Executor.
@@ -22,7 +22,6 @@ type Task struct {
 	GroupID   string            // empty if desk is not inside a group
 	EventType string            // the event type that triggered this desk
 	Prompt    string            // skill prompts merged + input context — ready to send to any AI or CLI
-	Input     *types.Artifact   // nil for the first step
 	Options   map[string]string // executor configuration (command, image, sdk, etc.)
 	Env       map[string]string // environment variables to inject into the subprocess
 	WorkDir   string            // working directory for exec runner (project dir)

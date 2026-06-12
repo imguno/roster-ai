@@ -32,19 +32,15 @@ func (h *handler) Execute(ctx context.Context, req *pb.ExecuteRequest) (*pb.Exec
 		Session:      session,
 		GroupHistory: groupHistory,
 	}
-	if len(req.InputPayload) > 0 {
-		task.Input = &types.Artifact{Payload: req.InputPayload}
-	}
 
-	artifact, err := h.registry.Dispatch(ctx, types.ExecutorType(req.ExecutorType), task)
+	output, err := h.registry.Dispatch(ctx, types.ExecutorType(req.ExecutorType), task)
 	if err != nil {
 		return &pb.ExecuteResponse{Error: err.Error()}, nil
 	}
-	if artifact == nil {
+	if output == nil {
 		return &pb.ExecuteResponse{}, nil
 	}
 	return &pb.ExecuteResponse{
-		Schema:  artifact.Schema,
-		Payload: artifact.Payload,
+		Payload: []byte(output.Content),
 	}, nil
 }

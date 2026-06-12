@@ -142,6 +142,9 @@ func main() {
 			os.Exit(1)
 		}
 
+	case "help", "--help", "-h":
+		printUsage()
+
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", os.Args[1])
 		printUsage()
@@ -783,7 +786,7 @@ func runRuns(args []string) error {
 			}
 		case observe.EventStepFailed:
 			r.status = "failed"
-		case observe.EventStepSkipped:
+		case "step.skipped":
 			if r.status == "started" {
 				r.status = "skipped"
 			}
@@ -1868,7 +1871,7 @@ func runSummarize(args []string) error {
 	}
 
 	summarizeDesk := func(id string) {
-		entries := store.DeskSession().Load(id)
+		entries := store.LoadSession(id, 0)
 		if len(entries) == 0 {
 			fmt.Printf("  %s: no session data\n", id)
 			return
@@ -1901,7 +1904,7 @@ func runSummarize(args []string) error {
 			summary += fmt.Sprintf("## %s\n%s\n\n", e.Role, e.Content)
 		}
 
-		store.DeskSession().Summarize(id, summary)
+		store.SummarizeSession(id, summary)
 		fmt.Printf("  %s: %d entries → summarized\n", id, len(entries))
 	}
 

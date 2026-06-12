@@ -17,8 +17,8 @@ type HubAPI interface {
 	Emit(ctx context.Context, ev types.Event)
 	Reload(ctx context.Context, org *types.Organization, agents map[string]*types.Agent, desks map[string]*types.Desk, groups map[string]*types.Group, resources map[string]*types.Resource)
 	SubmitHumanInput(deskID, content string) bool
-	DeskArtifact(deskID string) (string, bool)
 	DeskSession(deskID string) ([]store.SessionEntry, bool)
+	DeskLogs(deskID string) []store.LogEntry
 	Desks() map[string]*types.Desk
 	Groups() map[string]*types.Group
 	Resources() map[string]*types.Resource
@@ -29,6 +29,7 @@ type HubAPI interface {
 	RecordMetrics(deskID string, metrics map[string]float64)
 	GetMetrics(deskID string) map[string]map[string]float64
 	BudgetStatus() map[string]float64
+	SDKReady() bool
 }
 
 // Server is the hub management web UI and REST API.
@@ -64,9 +65,42 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/runs/", s.handleRunSub)
 	s.mux.HandleFunc("/api/metrics", s.handleMetrics)
 	s.mux.HandleFunc("/api/budget", s.handleBudget)
+	s.mux.HandleFunc("/api/version", s.handleVersion)
+	s.mux.HandleFunc("/api/ping", s.handlePing)
+	s.mux.HandleFunc("/readiness", s.handleReadiness)
+	s.mux.HandleFunc("/health", s.handleHealth)
+	s.mux.HandleFunc("/ping", s.handlePing)
 	s.mux.HandleFunc("/webhooks/", s.handleWebhook)
 	s.mux.Handle("/static/", http.FileServer(http.FS(staticFS)))
 	s.mux.HandleFunc("/", s.handleUI)
+}
+
+func (s *Server) handlePing(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("pong"))
+}
+
+func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"version":"0.1.0"}`))
+}
+
+func (s *Server) handleReadiness(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if s.hub.SDKReady() {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"status":"ready"}`))
+	} else {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		w.Write([]byte(`{"status":"not_ready"}`))
+	}
+}
+
+func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"status":"ok"}`))
 }
 
 func (s *Server) handleUI(w http.ResponseWriter, r *http.Request) {

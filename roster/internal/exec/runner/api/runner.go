@@ -22,7 +22,7 @@ func New() *Runner {
 	return r
 }
 
-func (r *Runner) Run(ctx context.Context, task sdk.Task) (*types.Artifact, error) {
+func (r *Runner) Run(ctx context.Context, task sdk.Task) (*types.Output, error) {
 	sdkName := types.SDKType(task.Options["sdk"])
 	backend, ok := r.backends[sdkName]
 	if !ok {

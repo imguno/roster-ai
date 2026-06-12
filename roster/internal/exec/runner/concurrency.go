@@ -21,6 +21,6 @@ func (r *ConcurrentRegistry) Register(t types.ExecutorType, exec sdk.Executor) {
 	r.inner.Register(t, exec)
 }
 
-func (r *ConcurrentRegistry) Dispatch(ctx context.Context, t types.ExecutorType, task sdk.Task) (*types.Artifact, error) {
+func (r *ConcurrentRegistry) Dispatch(ctx context.Context, t types.ExecutorType, task sdk.Task) (*types.Output, error) {
 	return r.inner.Dispatch(ctx, t, task)
 }

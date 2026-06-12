@@ -12,6 +12,7 @@ import (
 	"github.com/roster-io/roster/pkg/types"
 	"github.com/roster-io/roster/proto"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
@@ -215,12 +216,21 @@ func (m *ProcessManager) effectivePythonBin(ver string) string {
 }
 
 // GetOrStart returns a shared gRPC AgentServiceClient, starting the process on first call.
+// If the SDK process has crashed, it tears down the stale connection and restarts.
 func (m *ProcessManager) GetOrStart(ctx context.Context) (proto.AgentServiceClient, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if m.entry != nil {
-		return m.entry.client, nil
+		state := m.entry.conn.GetState()
+		if state == connectivity.TransientFailure || state == connectivity.Shutdown {
+			// SDK process is dead — tear down and restart below.
+			m.entry.conn.Close()
+			m.entry.proc.Stop()
+			m.entry = nil
+		} else {
+			return m.entry.client, nil
+		}
 	}
 
 	var proc Process
@@ -262,6 +272,26 @@ func (m *ProcessManager) GetOrStartResource(ctx context.Context) (proto.Resource
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.entry.resourceClient, nil
+}
+
+// Reset tears down the current SDK process and connection so the next
+// GetOrStart call will launch a fresh process.  This is used by the hub
+// to force a reconnect after an SDK execution fails mid-stream.
+func (m *ProcessManager) Reset() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.entry != nil {
+		m.entry.conn.Close()
+		m.entry.proc.Stop()
+		m.entry = nil
+	}
+}
+
+// IsReady reports whether the SDK process has been started and is available.
+func (m *ProcessManager) IsReady() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.entry != nil
 }
 
 // StopAll shuts down the SDK process and releases the gRPC connection.

@@ -8,12 +8,9 @@ import (
 )
 
 // BuildPrompt resolves all skill refs for an agent and merges them into a
-// single prompt string. The input artifact (if any) is appended at the end
-// so the runner receives full context in one string.
-//
-// Even if only a short keyword arrives as input, the skill prompts give the
-// runner enough context to interpret and act on it correctly.
-func BuildPrompt(ctx context.Context, resolver *Resolver, skills []types.SkillRef, knowhow []types.SkillRef, input *types.Artifact) (string, error) {
+// single prompt string. Skills teach the agent HOW to do things;
+// resources (not skills) tell it WHAT to access.
+func BuildPrompt(ctx context.Context, resolver *Resolver, skills []types.SkillRef, knowhow []types.SkillRef) (string, error) {
 	var parts []string
 
 	for _, ref := range skills {
@@ -44,10 +41,6 @@ func BuildPrompt(ctx context.Context, resolver *Resolver, skills []types.SkillRe
 	// Standard skip instruction — every desk can self-govern participation.
 	parts = append(parts, `---
 If you have nothing meaningful to add given the current input and context, respond with exactly "SKIP" on the first line, optionally followed by a brief reason. Do not force output when you have no actionable contribution.`)
-
-	if input != nil && len(input.Payload) > 0 {
-		parts = append(parts, "---", string(input.Payload))
-	}
 
 	return strings.Join(parts, "\n\n"), nil
 }

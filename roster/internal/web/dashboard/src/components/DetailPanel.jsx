@@ -3,16 +3,14 @@ import * as api from '../api'
 import './DetailPanel.css'
 
 export default function DetailPanel({ selected, desks, groups, deskStates, onClose }) {
-  const [artifact, setArtifact] = useState(null)
   const [profile, setProfile] = useState(null)
   const [session, setSession] = useState(null)
   const [sessionTab, setSessionTab] = useState(false)
 
   useEffect(() => {
-    setArtifact(null); setProfile(null); setSession(null); setSessionTab(false)
+    setProfile(null); setSession(null); setSessionTab(false)
     if (!selected) return
     if (selected.type === 'desk') {
-      api.fetchDeskArtifact(selected.id).then(setArtifact).catch(() => {})
       api.fetchDeskProfile(selected.id).then(setProfile).catch(() => {})
       api.fetchDeskSession(selected.id).then(setSession).catch(() => {})
     }
@@ -91,7 +89,6 @@ export default function DetailPanel({ selected, desks, groups, deskStates, onClo
             {profile.estimated_cost > 0 && <Field label="Cost" value={`$${profile.estimated_cost.toFixed(4)}`} />}
           </>
         )}
-        {artifact && <Field label="Artifact" value={<pre className="art-box">{artifact}</pre>} />}
         {session && session.length > 0 && (
           <div className="dz-field">
             <label style={{ cursor: 'pointer' }} onClick={() => setSessionTab(v => !v)}>

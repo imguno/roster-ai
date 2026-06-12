@@ -22,6 +22,7 @@ type Desk struct {
 	Skills    []string      `yaml:"skills,omitempty" json:"skills,omitempty"`
 	Resources []string      `yaml:"resources,omitempty" json:"resources,omitempty"`
 	Session   SessionConfig `yaml:"session,omitempty" json:"session,omitempty"`
+	Timeout   string        `yaml:"timeout,omitempty" json:"timeout,omitempty"`
 }
 
 // AgentRef is either a local agent ID (string) or a remote agent spec (object).

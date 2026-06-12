@@ -8,11 +8,13 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"time"
 
 	"github.com/roster-io/roster/pkg/sdk"
 	"github.com/roster-io/roster/pkg/types"
 )
+
+// Deprecated: exec runner is being replaced by SDK agents.
+// Kept for backwards compatibility.
 
 // maxStdoutBytes caps subprocess stdout to prevent unbounded memory growth.
 // Exceeded outputs produce a clear error rather than an OOM kill.
@@ -85,7 +87,7 @@ type execInput struct {
 	Prompt       string              `json:"prompt"`
 	Session      []sdk.SessionEntry  `json:"session,omitempty"`
 	GroupHistory []sdk.GroupMessage  `json:"group_history,omitempty"`
-	Input        string              `json:"input,omitempty"` // input artifact payload as UTF-8 string
+	Input        string              `json:"input,omitempty"`
 	Resources    []sdk.TaskResource  `json:"resources,omitempty"`
 }
 
@@ -99,10 +101,10 @@ type actionRequest struct {
 // execOutput is the JSON envelope expected from the subprocess's stdout.
 type execOutput struct {
 	Schema  string `json:"schema"`
-	Payload string `json:"payload"` // plain string; stored as []byte in Artifact
+	Payload string `json:"payload"`
 }
 
-func (e *ExecRunner) Run(ctx context.Context, task sdk.Task) (*types.Artifact, error) {
+func (e *ExecRunner) Run(ctx context.Context, task sdk.Task) (*types.Output, error) {
 	command, ok := task.Options["command"]
 	if !ok || command == "" {
 		return nil, fmt.Errorf("exec: missing 'command' param for desk %s", task.DeskID)
@@ -118,9 +120,7 @@ func (e *ExecRunner) Run(ctx context.Context, task sdk.Task) (*types.Artifact, e
 		GroupHistory: task.GroupHistory,
 		Resources:    task.Resources,
 	}
-	if task.Input != nil {
-		in.Input = string(task.Input.Payload)
-	}
+	// Input is no longer carried via artifacts — agents read from resources.
 	stdinData, err := json.Marshal(in)
 	if err != nil {
 		return nil, fmt.Errorf("exec: marshal stdin: %w", err)
@@ -164,30 +164,18 @@ func (e *ExecRunner) Run(ctx context.Context, task sdk.Task) (*types.Artifact, e
 	// Process stderr protocol lines (ACTION:, METRIC:).
 	metrics := e.processStderr(stderr.String(), task)
 
-	// Convert metrics to artifact Meta for hub to pick up.
-	meta := map[string]string{}
-	for k, v := range metrics {
-		meta["metric:"+k] = fmt.Sprintf("%g", v)
-	}
-
 	var out execOutput
 	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
-		// Fallback: treat raw stdout as plain-text payload.
-		return &types.Artifact{
-			AgentID:   task.AgentID,
-			Schema:    "text-v1",
-			Payload:   bytes.TrimSpace(stdout.Bytes()),
-			Meta:      meta,
-			CreatedAt: time.Now(),
+		// Fallback: treat raw stdout as plain-text content.
+		return &types.Output{
+			Content: string(bytes.TrimSpace(stdout.Bytes())),
+			Metrics: metrics,
 		}, nil
 	}
 
-	return &types.Artifact{
-		AgentID:   task.AgentID,
-		Schema:    out.Schema,
-		Payload:   []byte(out.Payload),
-		Meta:      meta,
-		CreatedAt: time.Now(),
+	return &types.Output{
+		Content: out.Payload,
+		Metrics: metrics,
 	}, nil
 }
 

@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/roster-io/roster/internal/store/observe"
-	"github.com/roster-io/roster/internal/event/routing"
 	"github.com/roster-io/roster/internal/agent/skill"
+	"github.com/roster-io/roster/internal/event/routing"
 	"github.com/roster-io/roster/internal/store/memory"
+	"github.com/roster-io/roster/internal/store/observe"
 	"github.com/roster-io/roster/pkg/sdk"
 	"github.com/roster-io/roster/pkg/types"
 )
@@ -19,13 +19,12 @@ type fakeDispatcher struct {
 	tasks []sdk.Task
 }
 
-func (f *fakeDispatcher) Dispatch(ctx context.Context, t types.ExecutorType, task sdk.Task) (*types.Artifact, error) {
+func (f *fakeDispatcher) Dispatch(ctx context.Context, t types.ExecutorType, task sdk.Task) (*types.Output, error) {
 	f.mu.Lock()
 	f.tasks = append(f.tasks, task)
 	f.mu.Unlock()
-	return &types.Artifact{
-		ID:      "art-" + task.DeskID,
-		Payload: []byte("output from " + task.DeskID),
+	return &types.Output{
+		Content: "output from " + task.DeskID,
 	}, nil
 }
 
@@ -66,7 +65,7 @@ func TestDeskSubscription(t *testing.T) {
 				Executor:  types.ExecutorConfig{Type: types.ExecutorTypeExec, Params: map[string]string{"command": "echo test"}},
 			},
 		},
-		nil, nil, nil,
+		nil, nil,
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -88,7 +87,7 @@ func TestDeskSubscription(t *testing.T) {
 	}
 }
 
-func TestGroupCoordination(t *testing.T) {
+func TestGroupFanOut(t *testing.T) {
 	d := &fakeDispatcher{}
 	h := newTestHub(t, d)
 
@@ -103,9 +102,9 @@ func TestGroupCoordination(t *testing.T) {
 			"worker-a": {ID: "worker-a", Parent: "dev-team", Agent: types.AgentRef{ID: "worker-agent"}, Executor: types.ExecutorConfig{Type: types.ExecutorTypeExec}},
 		},
 		map[string]*types.Group{
-			"dev-team": {ID: "dev-team", Subscribe: []string{"work.start"}, Lead: &types.GroupLead{Desk: "lead", Position: "both"}},
+			"dev-team": {ID: "dev-team", Subscribe: []string{"work.start"}},
 		},
-		nil, nil,
+		nil,
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -114,50 +113,7 @@ func TestGroupCoordination(t *testing.T) {
 
 	h.Emit(ctx, types.Event{Type: "work.start", Source: "test"})
 
-	// "both" mode: lead(plan) → worker-a → lead(synthesize) = 3 dispatches
-	waitFor(t, 8*time.Second, func() bool {
-		d.mu.Lock()
-		defer d.mu.Unlock()
-		return len(d.tasks) >= 3
-	})
-
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	if d.tasks[0].DeskID != "lead" {
-		t.Errorf("first dispatch should be lead, got %q", d.tasks[0].DeskID)
-	}
-	if d.tasks[1].DeskID != "worker-a" {
-		t.Errorf("second dispatch should be worker-a, got %q", d.tasks[1].DeskID)
-	}
-	if d.tasks[2].DeskID != "lead" {
-		t.Errorf("third dispatch should be lead, got %q", d.tasks[2].DeskID)
-	}
-}
-
-func TestGroupEmit(t *testing.T) {
-	d := &fakeDispatcher{}
-	h := newTestHub(t, d)
-
-	h.Load(
-		&types.Organization{ID: "test-org"},
-		map[string]*types.Agent{"a": {ID: "a"}},
-		map[string]*types.Desk{
-			"worker":   {ID: "worker", Parent: "dev-team", Agent: types.AgentRef{ID: "a"}, Executor: types.ExecutorConfig{Type: types.ExecutorTypeExec}},
-			"reporter": {ID: "reporter", Agent: types.AgentRef{ID: "a"}, Subscribe: []string{"dev.done"}, Executor: types.ExecutorConfig{Type: types.ExecutorTypeExec}},
-		},
-		map[string]*types.Group{
-			"dev-team": {ID: "dev-team", Subscribe: []string{"plan.ready"}, Emit: []string{"dev.done"}},
-		},
-		nil, nil,
-	)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	h.Start(ctx)
-
-	h.Emit(ctx, types.Event{Type: "plan.ready", Source: "strategy"})
-
-	// worker ran (from dev-team) + reporter ran (from dev.done emit)
+	// Fan-out: both lead and worker-a should be dispatched.
 	waitFor(t, 8*time.Second, func() bool {
 		d.mu.Lock()
 		defer d.mu.Unlock()
@@ -166,11 +122,59 @@ func TestGroupEmit(t *testing.T) {
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if d.tasks[0].DeskID != "worker" {
-		t.Errorf("expected first dispatch to worker, got %q", d.tasks[0].DeskID)
+	dispatched := map[string]bool{}
+	for _, task := range d.tasks {
+		dispatched[task.DeskID] = true
 	}
-	if d.tasks[1].DeskID != "reporter" {
-		t.Errorf("expected second dispatch to reporter, got %q", d.tasks[1].DeskID)
+	if !dispatched["lead"] {
+		t.Error("expected lead to be dispatched")
+	}
+	if !dispatched["worker-a"] {
+		t.Error("expected worker-a to be dispatched")
+	}
+}
+
+func TestGroupDeskEmit(t *testing.T) {
+	d := &fakeDispatcher{}
+	h := newTestHub(t, d)
+
+	h.Load(
+		&types.Organization{ID: "test-org"},
+		map[string]*types.Agent{"a": {ID: "a"}},
+		map[string]*types.Desk{
+			"worker":   {ID: "worker", Parent: "dev-team", Agent: types.AgentRef{ID: "a"}, Executor: types.ExecutorConfig{Type: types.ExecutorTypeExec}},
+			"reporter": {ID: "reporter", Agent: types.AgentRef{ID: "a"}, Subscribe: []string{"worker.done"}, Executor: types.ExecutorConfig{Type: types.ExecutorTypeExec}},
+		},
+		map[string]*types.Group{
+			"dev-team": {ID: "dev-team", Subscribe: []string{"plan.ready"}},
+		},
+		nil,
+	)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	h.Start(ctx)
+
+	h.Emit(ctx, types.Event{Type: "plan.ready", Source: "strategy"})
+
+	// worker runs (from dev-team fan-out) then emits worker.done which triggers reporter.
+	waitFor(t, 8*time.Second, func() bool {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		return len(d.tasks) >= 2
+	})
+
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	dispatched := map[string]bool{}
+	for _, task := range d.tasks {
+		dispatched[task.DeskID] = true
+	}
+	if !dispatched["worker"] {
+		t.Error("expected worker to be dispatched")
+	}
+	if !dispatched["reporter"] {
+		t.Error("expected reporter to be dispatched via worker.done")
 	}
 }
 
@@ -193,7 +197,6 @@ func TestResourceBindingInGroup(t *testing.T) {
 				Config: map[string]string{"repo": "my-org/my-repo"},
 			},
 		},
-		nil,
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -289,51 +292,59 @@ binary: ./bin/roster-new
 	}
 }
 
-func TestGroupCheckpointResume(t *testing.T) {
+func TestDeskEmit(t *testing.T) {
 	d := &fakeDispatcher{}
 	h := newTestHub(t, d)
 
 	h.Load(
-		nil,
+		&types.Organization{ID: "test-org"},
 		map[string]*types.Agent{"a": {ID: "a"}},
 		map[string]*types.Desk{
-			"desk1": {ID: "desk1", Parent: "my-group", Agent: types.AgentRef{ID: "a"}, Executor: types.ExecutorConfig{Type: types.ExecutorTypeExec}},
-			"desk2": {ID: "desk2", Parent: "my-group", Agent: types.AgentRef{ID: "a"}, Executor: types.ExecutorConfig{Type: types.ExecutorTypeExec}},
-			"desk3": {ID: "desk3", Parent: "my-group", Agent: types.AgentRef{ID: "a"}, Executor: types.ExecutorConfig{Type: types.ExecutorTypeExec}},
-		},
-		map[string]*types.Group{
-			"my-group": {ID: "my-group"},
+			"producer": {ID: "producer", Agent: types.AgentRef{ID: "a"}, Executor: types.ExecutorConfig{Type: types.ExecutorTypeExec}},
 		},
 		nil, nil,
 	)
 
-	stableRunID := "my-group-1"
-	h.store.Run().SaveStep(stableRunID, "my-group", "desk1-round0", &types.Artifact{Payload: []byte("desk1 output")})
-	h.store.Run().SaveStep(stableRunID, "my-group", "desk2-round0", &types.Artifact{Payload: []byte("desk2 output")})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
-	group := h.groups["my-group"]
-	sess := h.sessions.Activate("my-group")
-	defer h.sessions.Deactivate("my-group")
+	// Subscribe to result.text on the raw bus to capture the emitted event.
+	var captured []types.Event
+	var capMu sync.Mutex
+	h.Bus().Subscribe("test-listener", []string{"result.text"}, func(_ context.Context, ev types.Event) error {
+		capMu.Lock()
+		captured = append(captured, ev)
+		capMu.Unlock()
+		return nil
+	})
 
-	ctx := context.Background()
-	_, err := h.runGroupSequential(ctx, stableRunID, "my-group", group, &types.Artifact{Payload: []byte("input")}, sess)
+	// Use DeskEmitter to emit a typed event from the producer desk.
+	emitter := h.DeskEmitter("producer")
+	err := emitter.Emit(ctx, "result.text", map[string]string{"text": "hello"})
 	if err != nil {
-		t.Fatalf("runGroupSequential: %v", err)
+		t.Fatalf("DeskEmitter.Emit failed: %v", err)
 	}
 
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	if len(d.tasks) != 1 {
-		t.Fatalf("expected 1 dispatch (desk3 only), got %d: %v", len(d.tasks), func() []string {
-			ids := make([]string, len(d.tasks))
-			for i, t := range d.tasks {
-				ids[i] = t.DeskID
-			}
-			return ids
-		}())
+	waitFor(t, 3*time.Second, func() bool {
+		capMu.Lock()
+		defer capMu.Unlock()
+		return len(captured) > 0
+	})
+
+	capMu.Lock()
+	defer capMu.Unlock()
+	if len(captured) != 1 {
+		t.Fatalf("expected 1 captured event, got %d", len(captured))
 	}
-	if d.tasks[0].DeskID != "desk3" {
-		t.Errorf("expected desk3, got %q", d.tasks[0].DeskID)
+	ev := captured[0]
+	if ev.Type != "result.text" {
+		t.Errorf("expected type result.text, got %s", ev.Type)
+	}
+	if ev.Source != "producer" {
+		t.Errorf("expected source producer, got %s", ev.Source)
+	}
+	if string(ev.Payload) != `{"text":"hello"}` {
+		t.Errorf("unexpected payload: %s", string(ev.Payload))
 	}
 }
 
@@ -347,7 +358,7 @@ func TestEventNotRouted(t *testing.T) {
 		map[string]*types.Desk{
 			"reviewer": {ID: "reviewer", Agent: types.AgentRef{ID: "a"}, Subscribe: []string{"task.created"}, Executor: types.ExecutorConfig{Type: types.ExecutorTypeExec}},
 		},
-		nil, nil, nil,
+		nil, nil,
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
