@@ -327,8 +327,29 @@
 }
 .chat-text {
   white-space: pre-wrap; word-break: break-word;
-  max-height: 80px; overflow-y: auto;
+  max-height: 200px; overflow-y: auto;
   font-size: 11px;
+}
+.chat-expand {
+  display: inline-block; cursor: pointer; color: var(--cyan); font-size: 10px;
+  margin-left: 4px; user-select: none; opacity: 0.8;
+}
+.chat-expand:hover { opacity: 1; }
+.chat-meta {
+  display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px;
+}
+.chat-tag {
+  display: inline-block; padding: 2px 6px; border-radius: 4px;
+  font-size: 10px; font-family: 'JetBrains Mono', monospace; font-weight: 500;
+}
+.chat-tag-trigger {
+  background: rgba(59,130,246,0.15); color: #60a5fa; border: 1px solid rgba(59,130,246,0.3);
+}
+.chat-tag-skill {
+  background: rgba(168,85,247,0.12); color: #c084fc; border: 1px solid rgba(168,85,247,0.25);
+}
+.chat-tag-resource {
+  background: rgba(34,197,94,0.12); color: #4ade80; border: 1px solid rgba(34,197,94,0.25);
 }
 
 /* ── Emit actions ── */
@@ -362,6 +383,27 @@
   outline: none;
 }
 .emit-action-payload:focus { border-color: var(--cyan); box-shadow: 0 0 0 1px rgba(0,204,255,0.2); }
+
+/* ── Human input form ── */
+.human-input-section { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border); }
+.human-input-textarea {
+  width: 100%; margin-top: 6px;
+  background: var(--bg3); border: 1px solid rgba(255,170,34,0.25);
+  color: var(--text1); font-size: 11px; font-family: 'JetBrains Mono', monospace;
+  padding: 8px 10px; border-radius: 6px; resize: vertical;
+  outline: none; box-sizing: border-box;
+}
+.human-input-textarea:focus { border-color: var(--amber); box-shadow: 0 0 0 1px rgba(255,170,34,0.2); }
+.human-input-submit {
+  margin-top: 6px; width: 100%; padding: 6px 0;
+  background: rgba(255,170,34,0.1); border: 1px solid rgba(255,170,34,0.3);
+  color: var(--amber); font-size: 11px; font-weight: 600;
+  font-family: 'JetBrains Mono', monospace; letter-spacing: 0.5px;
+  border-radius: 6px; cursor: pointer; transition: all .15s;
+}
+.human-input-submit:hover:not(:disabled) { background: rgba(255,170,34,0.2); border-color: var(--amber); box-shadow: var(--glow-amber); }
+.human-input-submit:disabled { opacity: 0.4; cursor: default; }
+.human-input-sent { font-size: 11px; color: var(--green); margin-top: 6px; font-family: 'JetBrains Mono', monospace; }
 
 /* ═══════════════════════════════════════════
    EDGE POPOVER — click an edge to see events

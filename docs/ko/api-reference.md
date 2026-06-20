@@ -46,17 +46,20 @@ GET /api/runs
 ```json
 [
   {
-    "ID": "a1b2c3d4-...",
-    "PipelineID": "product-launch",
-    "Status": "done",
-    "StartedAt": "2026-06-07T10:00:00Z",
-    "FinishedAt": "2026-06-07T10:05:30Z",
-    "Error": ""
+    "run_id": "a1b2c3d4-...",
+    "group_id": "product-launch",
+    "desks": ["writer-desk", "reviewer-desk"],
+    "status": "completed",
+    "started_at": "2026-06-07T10:00:00Z",
+    "total_step_ms": 5300,
+    "input_tokens": 1200,
+    "output_tokens": 800,
+    "trigger_type": "product.draft.ready"
   }
 ]
 ```
 
-**Status 값:** `pending` | `running` | `done` | `failed` | `waiting`
+**상태 값:** `running` | `completed` | `failed` | `skipped`
 
 ---
 
@@ -73,9 +76,9 @@ GET /api/events?pipeline={pipelineID}
 ```json
 [
   {
-    "PipelineID": "product-launch",
-    "StepID": "writer-desk",
-    "Type": "step.completed",
+    "RunID": "a1b2c3d4-...",
+    "DeskID": "writer-desk",
+    "Type": "desk.completed",
     "At": "2026-06-07T10:01:00Z",
     "DurationMs": 3200,
     "Model": "claude-opus-4-8",
@@ -90,66 +93,33 @@ GET /api/events?pipeline={pipelineID}
 
 | type | 설명 |
 |------|------|
-| `step.started` | 단계 실행 시작 |
-| `step.completed` | 단계 완료 |
-| `step.failed` | 단계 실패 |
-| `gate.waiting` | 승인 대기 중 |
-| `gate.approved` | 승인됨 |
+| `desk.started` | 데스크 실행 시작 |
+| `desk.completed` | 데스크 완료 |
+| `desk.failed` | 데스크 실패 |
+| `desk.timed_out` | 데스크 시간 초과 |
+| `desk.log` | 데스크 로그 메시지 발생 |
 | `human.waiting` | 사람의 입력 대기 중 |
 | `human.received` | 사람의 입력 수신 |
+| `queue.pushed` | 이벤트가 데스크 큐에 추가됨 |
+| `event.published` | 이벤트가 버스에 발행됨 |
+| `emit.rejected` | 데스크 허용 목록에 없는 발행 거부됨 |
 
 ---
 
-## Gates (승인 게이트)
+## Human Input (사람 입력)
 
-### 대기 중인 게이트 목록
-
-```
-GET /api/gates
-```
-
-**Response:**
-```json
-[
-  {
-    "RunID": "a1b2c3d4-...",
-    "StepID": "prd-review",
-    "At": "2026-06-07T10:02:00Z"
-  }
-]
-```
-
----
-
-### 게이트 승인 / 거절
-
-```
-POST /api/gates/{runID}/{stepID}/approve
-POST /api/gates/{runID}/{stepID}/reject
-```
-
-- `approve` → 다음 단계로 진행
-- `reject` → 직전 작업 단계로 롤백 후 재실행
-
-**Response:** `204 No Content`
-
----
-
-## Human Input (사람 참여 단계)
-
-`executor: type: human` 데스크가 있는 파이프라인 스텝에서 사람의 입력을 받습니다.
+`human.waiting` 이벤트가 발생한 데스크에 사람의 입력을 제출합니다.
 
 ### 입력 제출
 
 ```
-POST /api/human/{runID}/{stepID}
+POST /api/human/{deskID}
 Content-Type: application/json
 
-{"content": "여기에 직접 작성한 내용을 입력합니다"}
+{"content": "입력 내용"}
 ```
 
-- 입력된 `content`가 해당 단계의 아웃풋 아티팩트가 됩니다
-- 다음 단계는 이 아티팩트를 input으로 받습니다
+**Response:** `204 No Content`
 
 **Response:** `204 No Content`
 

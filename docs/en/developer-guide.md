@@ -55,15 +55,15 @@ executor:
 
 ```json
 {
-  "schema": "text-v1",
-  "payload": "execution result text"
+  "content": "execution result text",
+  "metrics": {"tokens_used": 150}
 }
 ```
 
-- `schema`: artifact type identifier (define freely, e.g. `"text-v1"`, `"code-v1"`, `"json-v1"`)
-- `payload`: the output passed to the next step
+- `content`: the output text (saved to session)
+- `metrics`: optional key-value metrics
 
-**Raw stdout fallback**: if the output is not valid JSON, the entire stdout is treated as a `text-v1` payload.
+**Raw stdout fallback**: if the output is not valid JSON, the entire stdout is treated as the content.
 
 ### Example: Python executor
 
@@ -164,18 +164,17 @@ import "github.com/roster-io/roster/pkg/sdk"
 
 type MyExecutor struct{}
 
-func (e *MyExecutor) Run(ctx context.Context, task sdk.Task) (*types.Artifact, error) {
+func (e *MyExecutor) Run(ctx context.Context, task sdk.Task) (*types.Output, error) {
     // task.Prompt        — what to execute
     // task.Session       — the desk's previous conversation history
     // task.GroupHistory  — messages in the team's shared space
-    // task.Options       — params from the desk YAML
+    // task.Resources     — available resources with config
+    // task.Skills        — resolved skill prompts
+    // task.Options       — executor config from the desk YAML
     // task.Env           — environment variables
 
     result := callMyService(task.Prompt)
-    return &types.Artifact{
-        Schema:  "text-v1",
-        Payload: []byte(result),
-    }, nil
+    return &types.Output{Content: result}, nil
 }
 ```
 
@@ -195,58 +194,6 @@ executor:
     endpoint: "https://my-service.com/api"
 ```
 
-### Custom Trigger
-
-```go
-import "github.com/roster-io/roster/pkg/sdk"
-
-type SlackTrigger struct {
-    channel string
-    token   string
-}
-
-func (t *SlackTrigger) Start(ctx context.Context) (<-chan sdk.TriggerEvent, error) {
-    ch := make(chan sdk.TriggerEvent, 4)
-    go func() {
-        defer close(ch)
-        for {
-            select {
-            case <-ctx.Done():
-                return
-            case msg := <-t.pollSlack(ctx):
-                ch <- sdk.TriggerEvent{
-                    PipelineID: "handle-slack-message",
-                    Payload:    map[string]string{"text": msg},
-                }
-            }
-        }
-    }()
-    return ch, nil
-}
-```
-
-### Custom Channel Adapter
-
-```go
-import "github.com/roster-io/roster/pkg/sdk"
-
-type NotionAdapter struct {
-    pageID string
-}
-
-func (a *NotionAdapter) Send(ctx context.Context, artifact *types.Artifact) error {
-    return notion.UpdatePage(ctx, a.pageID, string(artifact.Payload))
-}
-
-func (a *NotionAdapter) Receive(ctx context.Context) (*types.Artifact, error) {
-    content, err := notion.GetPage(ctx, a.pageID)
-    if err != nil {
-        return nil, err
-    }
-    return &types.Artifact{Schema: "text-v1", Payload: []byte(content)}, nil
-}
-```
-
 ---
 
 ## SDK Interface Reference
@@ -255,7 +202,7 @@ func (a *NotionAdapter) Receive(ctx context.Context) (*types.Artifact, error) {
 
 ```go
 type Executor interface {
-    Run(ctx context.Context, task Task) (*types.Artifact, error)
+    Run(ctx context.Context, task Task) (*types.Output, error)
 }
 ```
 
@@ -263,55 +210,36 @@ type Executor interface {
 
 ```go
 type Task struct {
-    AgentID      string
-    DeskID       string
-    Prompt       string            // skill prompts + input context
-    Input        *types.Artifact   // output from the previous step (nil = first step)
-    Options      map[string]string // executor.params from the desk YAML
-    Env          map[string]string // environment variables
-    Session      []SessionEntry    // desk's persistent session history
+    RunID     string
+    AgentID   string
+    DeskID    string
+    GroupID   string            // empty if desk is not inside a group
+    EventType string            // the event type that triggered this desk
+    Prompt    string            // skill prompts merged + input context
+    Options   map[string]string // executor configuration (command, image, sdk, etc.)
+    Env       map[string]string // environment variables
+    WorkDir   string            // working directory for exec runner
+
+    Notes       map[string][]byte  // current note store snapshot for this scope
+    Session     []SessionEntry     // desk's persistent session history
     GroupHistory []GroupMessage    // team's shared communication history
+    Resources   []TaskResource     // resources available to this desk
+    Skills      map[string]string  // skill name → resolved prompt content
 }
 ```
 
-### `sdk.Trigger`
+### `sdk.TaskResource`
 
 ```go
-type Trigger interface {
-    Start(ctx context.Context) (<-chan TriggerEvent, error)
-}
-
-type TriggerEvent struct {
-    PipelineID string
-    Payload    map[string]string
+type TaskResource struct {
+    ID     string            // resource ID
+    Type   string            // resource type (mcp, local, remote, etc.)
+    Config map[string]string // resource configuration (path, connection, etc.)
 }
 ```
-
-### `sdk.Adapter`
-
-```go
-type Adapter interface {
-    Send(ctx context.Context, artifact *types.Artifact) error
-    Receive(ctx context.Context) (*types.Artifact, error)
-}
-```
-
----
-
-## Artifact Schema Conventions
-
-Custom schema names are free-form, but using the standard names is recommended:
-
-| schema | payload format |
-|--------|---------------|
-| `text-v1` | UTF-8 text |
-| `json-v1` | JSON object |
-| `code-v1` | source code (any language) |
-| `markdown-v1` | Markdown text |
-| `binary-v1` | arbitrary binary |
 
 ---
 
 ## Contributing
 
-Custom executors, triggers, and skills can be shared as standalone git repositories. See the [YAML reference](yaml-reference.md) for the skill packaging format.
+Custom executors and skills can be shared as standalone git repositories. See the [YAML reference](yaml-reference.md) for the skill packaging format.

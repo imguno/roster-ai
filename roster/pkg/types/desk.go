@@ -3,13 +3,13 @@ package types
 import "fmt"
 
 // Desk is the execution unit — one agent, one job, one set of events.
-// It declares its group membership via the `parent` field.
+// It can belong to multiple groups via the `groups` field.
 type Desk struct {
 	Kind        Kind           `yaml:"kind" json:"kind"`
 	ID          string         `yaml:"id,omitempty" json:"id,omitempty"`
 	Name        string         `yaml:"name,omitempty" json:"name,omitempty"`
 	Description string         `yaml:"description,omitempty" json:"description,omitempty"`
-	Parent      string         `yaml:"parent,omitempty" json:"parent,omitempty"`
+	Groups      []string       `yaml:"groups,omitempty" json:"groups,omitempty"`
 	Agent       AgentRef       `yaml:"agent,omitempty" json:"agent,omitempty"`
 	SourcePath  string         `yaml:"-" json:"-"`
 	Executor    ExecutorConfig `yaml:"executor" json:"executor"`
@@ -23,6 +23,26 @@ type Desk struct {
 	Resources []string      `yaml:"resources,omitempty" json:"resources,omitempty"`
 	Session   SessionConfig `yaml:"session,omitempty" json:"session,omitempty"`
 	Timeout   string        `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+	Budget    BudgetConfig  `yaml:"budget,omitempty" json:"budget,omitempty"`
+}
+
+// PrimaryGroup returns the first group ID, or empty string if no groups.
+// Convenience for backward compatibility during migration.
+func (d *Desk) PrimaryGroup() string {
+	if len(d.Groups) > 0 {
+		return d.Groups[0]
+	}
+	return ""
+}
+
+// BelongsTo checks if the desk is a member of the given group.
+func (d *Desk) BelongsTo(groupID string) bool {
+	for _, g := range d.Groups {
+		if g == groupID {
+			return true
+		}
+	}
+	return false
 }
 
 // AgentRef is either a local agent ID (string) or a remote agent spec (object).
@@ -90,4 +110,5 @@ type ExecutorConfig struct {
 // SessionConfig controls session history behavior for a desk.
 type SessionConfig struct {
 	MaxEntries *int `yaml:"max_entries,omitempty" json:"max_entries,omitempty"`
+	MaxKnowhow *int `yaml:"max_knowhow,omitempty" json:"max_knowhow,omitempty"`
 }

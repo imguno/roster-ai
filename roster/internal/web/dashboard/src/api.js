@@ -40,17 +40,17 @@ export async function fetchRunDetail(runID) {
 }
 
 export async function fetchDeskProfile(deskID) {
-  return jsonOrThrow(await fetch(`${BASE}/api/desks/${deskID}/profile`));
+  return jsonOrThrow(await fetch(`${BASE}/api/desks/${encodeURIComponent(deskID)}/profile`));
 }
 
 export async function fetchDeskSession(deskID) {
-  const r = await fetch(`${BASE}/api/desks/${deskID}/session`);
+  const r = await fetch(`${BASE}/api/desks/${encodeURIComponent(deskID)}/session`);
   if (!r.ok) return [];
   return r.json();
 }
 
 export async function fetchDeskLogs(deskID) {
-  const r = await fetch(`${BASE}/api/desks/${deskID}/logs`);
+  const r = await fetch(`${BASE}/api/desks/${encodeURIComponent(deskID)}/logs`);
   if (!r.ok) return [];
   return r.json();
 }
@@ -59,9 +59,13 @@ export async function fetchBudget() {
   return jsonOrThrow(await fetch(`${BASE}/api/budget`));
 }
 
+export async function fetchWarnings() {
+  return jsonOrThrow(await fetch(`${BASE}/api/warnings`));
+}
+
 export async function emitEvent(type, payload, source = 'dashboard') {
   const body = { type, source };
-  if (payload) body.payload = btoa(unescape(encodeURIComponent(payload)));
+  if (payload) body.payload = btoa(String.fromCharCode(...new TextEncoder().encode(payload)));
   const r = await fetch(`${BASE}/api/events`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -76,7 +80,7 @@ export async function cancelRun(runID) {
 }
 
 export async function submitHuman(deskID, content) {
-  const r = await fetch(`${BASE}/api/human/${deskID}`, {
+  const r = await fetch(`${BASE}/api/human/${encodeURIComponent(deskID)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ content }),

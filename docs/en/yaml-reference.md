@@ -19,6 +19,16 @@ emit: [project.done]
 store:
   backend: sqlite        # sqlite | file | memory  (default: file)
   path: .roster/data.db
+cron:
+  - schedule: "5m"
+    event: "heartbeat"
+limits:
+  max_iterations: 10
+  cooldown: "5m"
+budget:
+  max_per_run: 10.0
+  max_daily: 100.0
+  max_monthly: 1000.0
 ```
 
 | Field | Description |
@@ -27,47 +37,48 @@ store:
 | `emit` | Event types this Org publishes on completion |
 | `store.backend` | State storage backend |
 | `store.path` | SQLite file path |
+| `cron` | Periodic event emission schedules |
+| `limits.max_iterations` | Max times any event type can fire before circuit breaker trips |
+| `limits.cooldown` | Duration to suppress after tripping (e.g. `"5m"`) |
+| `budget` | Organization-level spending limits (USD) |
 
-> Groups and Desks declare membership via the `parent:` field. The Org does not enumerate its children.
+> Desks declare membership via the `groups:` field. Groups can nest via `parent:`. The Org does not enumerate its children.
 
 ---
 
 ## kind: group
 
-Team container. Declares membership via `parent`.
+Session-sharing scope. Desks declare membership via their `groups` field. Groups can nest via `parent`.
 
 ```yaml
 # dev-team.group.yaml
 kind: group
 id: dev-team
 name: Dev Team
-parent: my-company        # Org ID or parent Group ID
-subscribe: [task.created]
-emit: [task.done]
+parent: engineering       # optional: nest inside another group
 resources:
   - codebase              # Resources shared by the entire group
 ```
 
 | Field | Description |
 |-------|-------------|
-| `parent` | Parent Org or Group ID |
-| `subscribe` | Event types this Group listens for |
-| `emit` | Completion events for this Group (done when any member emits one) |
+| `parent` | Parent Group ID (for nesting groups) |
 | `resources` | Resources shared across the group |
 
-> Completion decisions are made by the Agent by reading Notes — no dispatch or lead orchestration.
+> Groups do not subscribe to or emit events — only desks do. Groups define session-sharing boundaries and resource inheritance.
 
 ---
 
 ## kind: desk
 
-Execution unit where an Agent sits. Declares membership via `parent`.
+Execution unit where an Agent sits. Declares group membership via `groups`.
 
 ```yaml
 # developer.desk.yaml
 kind: desk
 id: developer
-parent: dev-team          # Group ID or Org ID
+groups:                    # group membership (array — can belong to multiple groups)
+  - dev-team
 agent: claude-cli         # Agent ID
 
 role: "Senior Go Developer"
@@ -89,20 +100,30 @@ executor:
 
 session:
   max_entries: 20
+  max_knowhow: 10
+
+budget:
+  max_per_run: 5.0
+  max_daily: 50.0
 ```
 
 | Field | Description |
 |-------|-------------|
-| `parent` | Parent Group or Org ID |
+| `groups` | Group IDs this desk belongs to (array) |
 | `agent` | Agent ID |
 | `role` | Agent persona — assembled into the system prompt automatically |
 | `goal` | Agent goal — assembled into the system prompt automatically |
 | `skills` | Skills to load (included in the prompt) |
 | `resources` | Resources the agent can access |
 | `subscribe` | Event types to listen for |
-| `emit` | Event types to publish |
+| `emit` | Event types to publish (allowlist) |
 | `executor` | Execution backend configuration |
 | `session.max_entries` | Maximum number of session history entries |
+| `session.max_knowhow` | Maximum accumulated knowhow entries (agents write `## Knowhow` sections in output; hub extracts and re-injects them on future runs) |
+| `timeout` | Max execution duration (Go duration string, e.g. `"5m"`). Default: `30m`. Human desks have no default timeout |
+| `budget.max_per_run` | Max USD per single execution |
+| `budget.max_daily` | Max USD per 24h rolling window |
+| `budget.max_monthly` | Max USD per 30d rolling window |
 
 ### Executor Types
 
@@ -136,7 +157,7 @@ When using `executor.type: sdk`, the `agent` field references an agent ID regist
 ```yaml
 kind: desk
 id: approval-gate
-parent: dev-team
+groups: [dev-team]
 executor:
   type: human
 subscribe: [review.done]
@@ -199,6 +220,7 @@ connection: "${DATABASE_URL}"
 | `mcp` | MCP server start command |
 | `connection` | DB URL, API endpoint, etc. |
 | `config` | Arbitrary key-value passed directly to the agent |
+| `watch` | Glob patterns to filter file change events (e.g. `["**/*.go"]`). For `local` resources, the hub watches `config.path` recursively. If omitted, all changes trigger events |
 
 > Resources are configuration only. All interaction logic lives in the Agent.
 
@@ -265,9 +287,7 @@ All files can live in one folder. The Hub discovers them automatically.
 
 ```
 Event fires
-→ Desks/Groups with matching subscribe wake up
+→ Desks with matching subscribe wake up
 → Desk: Agent executes → signals completion via emit
-→ Group: Propagates to internal bus → done when any member emits the Group's emit event
+→ Output goes to session history; data sharing via resources
 ```
-
-Group completion decisions are made by the Agent reading Notes directly.

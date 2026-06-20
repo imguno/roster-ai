@@ -1,0 +1,5 @@
+kind: policy
+name: standard
+
+retry: 1
+timeout: 2m

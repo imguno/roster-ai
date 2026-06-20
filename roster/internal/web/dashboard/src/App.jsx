@@ -8,6 +8,28 @@ import ResourceView from './components/ResourceView'
 import * as api from './api'
 import './App.css'
 
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props)
+    this.state = { error: null }
+  }
+  static getDerivedStateFromError(error) {
+    return { error }
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 12, color: 'var(--text2)', padding: 20 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--red)' }}>Something went wrong</div>
+          <code style={{ fontSize: 11, color: 'var(--text3)', maxWidth: 500, overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{this.state.error.message}</code>
+          <button onClick={() => this.setState({ error: null })} style={{ fontSize: 12, padding: '4px 16px', background: 'var(--bg3)', color: 'var(--text1)', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer' }}>Reload View</button>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+
 export default function App() {
   const [org, setOrg] = useState(null)
   const [desks, setDesks] = useState({})
@@ -23,6 +45,7 @@ export default function App() {
   const [loadError, setLoadError] = useState(null)
   const [evOpen, setEvOpen] = useState(true)
   const [streamStatus, setStreamStatus] = useState('connecting')
+  const [warnings, setWarnings] = useState([])
   const evRef = useRef([])
   const streamRef = useRef(null)
   const evFlushRef = useRef(null)
@@ -39,7 +62,7 @@ export default function App() {
 
       const states = {}
       const evList = Array.isArray(ev) ? ev : []
-      for (const e of evList) processEvent(e, states, true)
+      for (const e of evList) processEvent(e, states)
       for (const id of Object.keys(states)) {
         if (states[id]?.status === 'done') states[id].status = 'idle'
       }
@@ -47,15 +70,17 @@ export default function App() {
       evRef.current = evList
       setEvents([...evList])
       setLoading(false)
+      return true
     } catch (err) {
       setLoadError(err.message || 'Failed to connect to hub')
       setLoading(false)
+      return false
     }
   }, [])
 
-  useEffect(() => {
-    loadData().then(() => {
-      streamRef.current = api.connectStream((ev) => {
+  const startStream = useCallback(() => {
+    if (streamRef.current) streamRef.current.close()
+    streamRef.current = api.connectStream((ev) => {
         evRef.current.push(ev)
         if (evRef.current.length > 5000) evRef.current = evRef.current.slice(-4000)
         if (!evFlushRef.current) {
@@ -66,13 +91,13 @@ export default function App() {
         }
         setDeskStates(prev => {
           const next = { ...prev }
-          processEvent(ev, next, false)
+          processEvent(ev, next)
           return next
         })
         // Auto-transition done/error → idle after 3s
         const t = ev.type || ''
-        const sid = ev.step_id || ''
-        if (sid && (t === 'step.completed' || t === 'step.failed' || t === 'step.failed.continued')) {
+        const sid = ev.desk_id || ''
+        if (sid && (t === 'desk.completed' || t === 'desk.failed' || t === 'desk.failed.continued')) {
           setTimeout(() => {
             setDeskStates(prev => {
               const cur = prev[sid]
@@ -83,8 +108,11 @@ export default function App() {
             })
           }, 3000)
         }
-      }, setStreamStatus)
-    })
+    }, setStreamStatus)
+  }, [])
+
+  useEffect(() => {
+    loadData().then(ok => { if (ok) startStream() })
 
     const updateBudget = async () => {
       try {
@@ -100,6 +128,7 @@ export default function App() {
       updateBudget()
     }, 5000)
     api.fetchQueues().then(setQueues).catch(() => {})
+    api.fetchWarnings().then(w => setWarnings(Array.isArray(w) ? w : [])).catch(() => {})
     updateBudget()
     return () => { clearInterval(qi); if (streamRef.current) streamRef.current.close(); if (evFlushRef.current) clearTimeout(evFlushRef.current) }
   }, [])
@@ -111,7 +140,7 @@ export default function App() {
         {loadError ? (
           <>
             <div style={{ fontSize: 12, color: '#ef4444' }}>{loadError}</div>
-            <button onClick={loadData} style={{ fontSize: 12, padding: '4px 16px', background: 'var(--bg3)', color: 'var(--text1)', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer' }}>Retry</button>
+            <button onClick={() => loadData().then(ok => { if (ok) startStream() })} style={{ fontSize: 12, padding: '4px 16px', background: 'var(--bg3)', color: 'var(--text1)', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer' }}>Retry</button>
           </>
         ) : (
           <div style={{ fontSize: 12, color: 'var(--text3)' }}>Connecting to hub…</div>
@@ -120,25 +149,34 @@ export default function App() {
     )
   }
 
+  const isEmpty = org && !org.name && Object.keys(desks).length === 0
+
   return (
     <>
-      <TopBar org={org} desks={desks} groups={groups} events={events} view={view} setView={setView} totalCost={totalCost} />
+      <TopBar org={org} desks={desks} groups={groups} events={events} view={view} setView={setView} totalCost={totalCost} warnings={warnings} />
       {streamStatus === 'disconnected' && (
         <div className="stream-banner">Stream disconnected — reconnecting…</div>
       )}
       <div className="workspace">
         <div className="main-area">
-          {view === 'graph' && (
-            <GraphView
-              org={org} desks={desks} groups={groups} resources={resources}
-              deskStates={deskStates} queues={queues}
-              selected={selected} onSelect={setSelected}
-              events={events}
-            />
-          )}
-          {view === 'routing' && <RoutingTable org={org} desks={desks} groups={groups} deskStates={deskStates} />}
-          {view === 'resources' && <ResourceView resources={resources} />}
-          {view === 'runs' && <RunHistory />}
+          {isEmpty ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 12, color: 'var(--text2)' }}>
+              <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--text1)' }}>No organization loaded</div>
+              <div style={{ fontSize: 12, color: 'var(--text3)' }}>Run <code style={{ background: 'var(--bg3)', padding: '2px 6px', borderRadius: 3 }}>roster start &lt;org-dir&gt;</code> to begin</div>
+            </div>
+          ) : <ErrorBoundary key={view}>
+            {view === 'graph' && (
+              <GraphView
+                org={org} desks={desks} groups={groups} resources={resources}
+                deskStates={deskStates} queues={queues}
+                selected={selected} onSelect={setSelected}
+                events={events}
+              />
+            )}
+            {view === 'routing' && <RoutingTable org={org} desks={desks} groups={groups} deskStates={deskStates} />}
+            {view === 'resources' && <ResourceView resources={resources} />}
+            {view === 'runs' && <RunHistory />}
+          </ErrorBoundary>}
         </div>
         <EventLog events={events} open={evOpen} onToggle={() => setEvOpen(v => !v)} />
       </div>
@@ -146,26 +184,26 @@ export default function App() {
   )
 }
 
-function processEvent(ev, states, silent) {
-  const id = ev.step_id || ''
+function processEvent(ev, states) {
+  const id = ev.desk_id || ''
   const t = ev.type || ''
-  if (t === 'step.started') {
+  if (t === 'desk.started') {
     states[id] = { status: 'working', startedAt: new Date(ev.at).getTime(), runID: ev.run_id, input: ev.input || '' }
-  } else if (t === 'step.completed') {
+  } else if (t === 'desk.completed') {
     const prev = states[id] || {}
     states[id] = { ...prev, status: 'done', durationMs: ev.duration_ms }
-  } else if (t === 'step.failed') {
+  } else if (t === 'desk.failed') {
     const prev = states[id] || {}
     states[id] = { ...prev, status: 'error', error: ev.error, durationMs: ev.duration_ms }
-  } else if (t === 'step.failed.continued') {
+  } else if (t === 'desk.failed.continued') {
     const prev = states[id] || {}
     states[id] = { ...prev, status: 'error', error: ev.error }
-  } else if (t === 'step.skipped') {
+  } else if (t === 'desk.skipped') {
     states[id] = { status: 'idle' }
   } else if (t === 'human.waiting') {
     const prev = states[id] || {}
     states[id] = { ...prev, status: 'human', startedAt: new Date(ev.at).getTime() }
-  } else if (t === 'step.log') {
+  } else if (t === 'desk.log') {
     const prev = states[id] || {}
     const logs = prev.logs || []
     logs.push({ type: ev.log_type, content: ev.log_content, at: ev.at })

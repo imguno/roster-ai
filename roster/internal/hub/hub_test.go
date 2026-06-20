@@ -87,7 +87,7 @@ func TestDeskSubscription(t *testing.T) {
 	}
 }
 
-func TestGroupFanOut(t *testing.T) {
+func TestDesksSubscribeDirectly(t *testing.T) {
 	d := &fakeDispatcher{}
 	h := newTestHub(t, d)
 
@@ -98,11 +98,11 @@ func TestGroupFanOut(t *testing.T) {
 			"worker-agent": {ID: "worker-agent"},
 		},
 		map[string]*types.Desk{
-			"lead":     {ID: "lead", Parent: "dev-team", Agent: types.AgentRef{ID: "lead-agent"}, Executor: types.ExecutorConfig{Type: types.ExecutorTypeExec}},
-			"worker-a": {ID: "worker-a", Parent: "dev-team", Agent: types.AgentRef{ID: "worker-agent"}, Executor: types.ExecutorConfig{Type: types.ExecutorTypeExec}},
+			"lead":     {ID: "lead", Groups: []string{"dev-team"}, Agent: types.AgentRef{ID: "lead-agent"}, Subscribe: []string{"work.start"}, Executor: types.ExecutorConfig{Type: types.ExecutorTypeExec}},
+			"worker-a": {ID: "worker-a", Groups: []string{"dev-team"}, Agent: types.AgentRef{ID: "worker-agent"}, Subscribe: []string{"work.start"}, Executor: types.ExecutorConfig{Type: types.ExecutorTypeExec}},
 		},
 		map[string]*types.Group{
-			"dev-team": {ID: "dev-team", Subscribe: []string{"work.start"}},
+			"dev-team": {ID: "dev-team"},
 		},
 		nil,
 	)
@@ -113,7 +113,7 @@ func TestGroupFanOut(t *testing.T) {
 
 	h.Emit(ctx, types.Event{Type: "work.start", Source: "test"})
 
-	// Fan-out: both lead and worker-a should be dispatched.
+	// Both desks subscribe directly and should be dispatched.
 	waitFor(t, 8*time.Second, func() bool {
 		d.mu.Lock()
 		defer d.mu.Unlock()
@@ -134,7 +134,7 @@ func TestGroupFanOut(t *testing.T) {
 	}
 }
 
-func TestGroupDeskEmit(t *testing.T) {
+func TestDeskEmitChain(t *testing.T) {
 	d := &fakeDispatcher{}
 	h := newTestHub(t, d)
 
@@ -142,11 +142,11 @@ func TestGroupDeskEmit(t *testing.T) {
 		&types.Organization{ID: "test-org"},
 		map[string]*types.Agent{"a": {ID: "a"}},
 		map[string]*types.Desk{
-			"worker":   {ID: "worker", Parent: "dev-team", Agent: types.AgentRef{ID: "a"}, Executor: types.ExecutorConfig{Type: types.ExecutorTypeExec}},
+			"worker":   {ID: "worker", Groups: []string{"dev-team"}, Agent: types.AgentRef{ID: "a"}, Subscribe: []string{"plan.ready"}, Executor: types.ExecutorConfig{Type: types.ExecutorTypeExec}},
 			"reporter": {ID: "reporter", Agent: types.AgentRef{ID: "a"}, Subscribe: []string{"worker.done"}, Executor: types.ExecutorConfig{Type: types.ExecutorTypeExec}},
 		},
 		map[string]*types.Group{
-			"dev-team": {ID: "dev-team", Subscribe: []string{"plan.ready"}},
+			"dev-team": {ID: "dev-team"},
 		},
 		nil,
 	)
@@ -157,7 +157,7 @@ func TestGroupDeskEmit(t *testing.T) {
 
 	h.Emit(ctx, types.Event{Type: "plan.ready", Source: "strategy"})
 
-	// worker runs (from dev-team fan-out) then emits worker.done which triggers reporter.
+	// worker subscribes directly, then emits worker.done which triggers reporter.
 	waitFor(t, 8*time.Second, func() bool {
 		d.mu.Lock()
 		defer d.mu.Unlock()
@@ -186,10 +186,10 @@ func TestResourceBindingInGroup(t *testing.T) {
 		&types.Organization{ID: "test-org"},
 		map[string]*types.Agent{"a": {ID: "a"}},
 		map[string]*types.Desk{
-			"worker": {ID: "worker", Parent: "dev-team", Agent: types.AgentRef{ID: "a"}, Executor: types.ExecutorConfig{Type: types.ExecutorTypeExec}},
+			"worker": {ID: "worker", Groups: []string{"dev-team"}, Agent: types.AgentRef{ID: "a"}, Subscribe: []string{"work.start"}, Executor: types.ExecutorConfig{Type: types.ExecutorTypeExec}},
 		},
 		map[string]*types.Group{
-			"dev-team": {ID: "dev-team", Subscribe: []string{"work.start"}, Resources: []string{"codebase"}},
+			"dev-team": {ID: "dev-team", Resources: []string{"codebase"}},
 		},
 		map[string]*types.Resource{
 			"codebase": {
@@ -372,5 +372,166 @@ func TestEventNotRouted(t *testing.T) {
 	defer d.mu.Unlock()
 	if len(d.tasks) != 0 {
 		t.Errorf("expected 0 dispatches for unmatched event, got %d", len(d.tasks))
+	}
+}
+
+func TestCleanupStaleRuns(t *testing.T) {
+	recorder := observe.NewRecorder()
+
+	// Simulate a previous session: two started runs, one completed, one orphaned.
+	past := time.Now().Add(-10 * time.Minute)
+	recorder.Record(observe.Event{RunID: "run-1", DeskID: "desk-a", Type: observe.EventDeskStarted, At: past})
+	recorder.Record(observe.Event{RunID: "run-1", DeskID: "desk-a", Type: observe.EventDeskCompleted, At: past.Add(time.Minute)})
+	recorder.Record(observe.Event{RunID: "run-2", DeskID: "desk-b", Type: observe.EventDeskStarted, At: past})
+	// run-2 has no terminal event — it's orphaned.
+
+	store := memory.New()
+	resolver := skill.NewResolver(".")
+	h := New(&fakeDispatcher{}, store, resolver, recorder)
+	h.SetQueueDir(t.TempDir())
+
+	h.cleanupStaleRuns()
+
+	events := recorder.Events()
+	var failedCount int
+	for _, ev := range events {
+		if ev.RunID == "run-2" && ev.Type == observe.EventDeskFailed {
+			failedCount++
+			if ev.Error != "hub restarted — run was orphaned" {
+				t.Errorf("unexpected error message: %s", ev.Error)
+			}
+		}
+	}
+	if failedCount != 1 {
+		t.Errorf("expected 1 stale run cleanup for run-2, got %d", failedCount)
+	}
+
+	// Verify run-1 was NOT marked as failed (it already completed).
+	for _, ev := range events {
+		if ev.RunID == "run-1" && ev.Type == observe.EventDeskFailed {
+			t.Error("run-1 should not have been marked as failed — it was already completed")
+		}
+	}
+}
+
+func TestReloadUpdatesSubscriptions(t *testing.T) {
+	d := &fakeDispatcher{}
+	h := newTestHub(t, d)
+
+	desks := map[string]*types.Desk{
+		"writer": {
+			Name:      "writer",
+			Groups:    []string{"team"},
+			Executor:  types.ExecutorConfig{Type: types.ExecutorTypeExec, Params: map[string]string{"command": "echo hi"}},
+			Subscribe: []string{"task.created"},
+			Emit:      []string{"done"},
+		},
+	}
+	groups := map[string]*types.Group{
+		"team": {Name: "team"},
+	}
+	agents := map[string]*types.Agent{}
+	resources := map[string]*types.Resource{}
+	org := &types.Organization{Name: "test"}
+
+	h.Load(org, agents, desks, groups, resources)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := h.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	// Emit task.created — writer should receive it.
+	h.Emit(ctx, types.Event{Type: "task.created", Source: "test"})
+	waitFor(t, 5*time.Second, func() bool {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		return len(d.tasks) == 1
+	})
+
+	// Reload with updated subscriptions: writer now listens to plan.approved instead.
+	updatedDesks := map[string]*types.Desk{
+		"writer": {
+			Name:      "writer",
+			Groups:    []string{"team"},
+			Executor:  types.ExecutorConfig{Type: types.ExecutorTypeExec, Params: map[string]string{"command": "echo hi"}},
+			Subscribe: []string{"plan.approved"},
+			Emit:      []string{"done"},
+		},
+	}
+	h.Reload(ctx, org, agents, updatedDesks, groups, resources)
+
+	// Clear dispatched tasks.
+	d.mu.Lock()
+	d.tasks = nil
+	d.mu.Unlock()
+
+	// Emit task.created — should NOT reach writer anymore.
+	h.Emit(ctx, types.Event{Type: "task.created", Source: "test"})
+	time.Sleep(500 * time.Millisecond)
+	d.mu.Lock()
+	if len(d.tasks) != 0 {
+		t.Errorf("writer should not receive task.created after reload, got %d tasks", len(d.tasks))
+	}
+	d.mu.Unlock()
+
+	// Emit plan.approved — writer SHOULD receive it now.
+	h.Emit(ctx, types.Event{Type: "plan.approved", Source: "test"})
+	waitFor(t, 5*time.Second, func() bool {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		return len(d.tasks) == 1
+	})
+}
+
+func TestRehydrateBudget(t *testing.T) {
+	recorder := observe.NewRecorder()
+
+	// Simulate completed events with token usage from a previous session.
+	past := time.Now().Add(-2 * time.Hour)
+	recorder.Record(observe.Event{
+		RunID: "run-1", DeskID: "dev", Type: observe.EventDeskCompleted,
+		At: past, InputTokens: 1000, OutputTokens: 500, Model: "claude-sonnet-4-6",
+	})
+	recorder.Record(observe.Event{
+		RunID: "run-2", DeskID: "dev", Type: observe.EventDeskCompleted,
+		At: past.Add(time.Hour), InputTokens: 2000, OutputTokens: 1000, Model: "claude-sonnet-4-6",
+	})
+	// A completed event with no tokens should be skipped.
+	recorder.Record(observe.Event{
+		RunID: "run-3", DeskID: "reviewer", Type: observe.EventDeskCompleted,
+		At: past,
+	})
+
+	s := memory.New()
+	resolver := skill.NewResolver(".")
+	h := New(&fakeDispatcher{}, s, resolver, recorder)
+	h.SetQueueDir(t.TempDir())
+
+	h.rehydrateBudget()
+
+	total := h.budget.Total("desk:dev")
+	if total <= 0 {
+		t.Fatalf("expected positive budget total for desk:dev, got %f", total)
+	}
+
+	// Should have two cost entries, both contributing.
+	cost1 := estimateCost("claude-sonnet-4-6", 1000, 500)
+	cost2 := estimateCost("claude-sonnet-4-6", 2000, 1000)
+	expected := cost1 + cost2
+	if total != expected {
+		t.Errorf("budget total: got %f, want %f", total, expected)
+	}
+
+	// Reviewer should have zero (no tokens).
+	if rev := h.budget.Total("desk:reviewer"); rev != 0 {
+		t.Errorf("expected 0 for desk:reviewer, got %f", rev)
+	}
+
+	// Daily totals should also work (events were 2h ago, within 24h window).
+	daily := h.budget.DailyTotal("desk:dev")
+	if daily != expected {
+		t.Errorf("daily total: got %f, want %f", daily, expected)
 	}
 }

@@ -12,6 +12,15 @@ export default function ResourceView({ resources }) {
             <span style={{ fontSize: 12, fontWeight: 600 }}>{id}</span>
             <span style={{ fontSize: 10, color: 'var(--text3)', background: 'var(--bg4)', padding: '1px 6px', borderRadius: 3 }}>{r.type || 'custom'}</span>
           </div>
+          {r.description && (
+            <div style={{ fontSize: 11, color: 'var(--text2)', marginBottom: 4 }}>{r.description}</div>
+          )}
+          {r.path && (
+            <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: "'JetBrains Mono', monospace", marginBottom: 2 }}>Path: {r.path}</div>
+          )}
+          {r.connection && (
+            <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: "'JetBrains Mono', monospace", marginBottom: 2 }}>Connection: {r.connection}</div>
+          )}
           <div style={{ fontSize: 10, color: 'var(--text2)' }}>
             {r.watch?.length > 0 && <span>Watch: {r.watch.join(', ')}</span>}
             {r.actions && <span>{r.watch?.length > 0 ? ' | ' : ''}Actions: {Object.keys(r.actions).join(', ')}</span>}

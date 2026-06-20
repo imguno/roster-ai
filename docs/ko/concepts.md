@@ -214,10 +214,11 @@ resource action: github-repo.notify
 | Desk (api, exec, docker, human, remote) | ✅ |
 | Agent + Skill | ✅ |
 | Group with coordinator pattern (both/first/last) | ✅ |
-| Resource (타입 정의 + watch 플레이스홀더) | ✅ |
+| Resource (타입 정의 + 로컬 파일 감시) | ✅ |
 | Organization (group/desk 간 이벤트 라우팅) | ✅ |
 | Session (desk + group) | ✅ |
 | Policy (타입 정의) | ✅ |
 | Actor model 이벤트 버스 | ✅ |
-| Resource watcher (실제 polling/webhook) | 🔲 |
+| Resource watcher (로컬 재귀 감시 + glob 필터링) | ✅ |
+| Resource watcher (원격 polling/webhook) | 🔲 |
 | Policy 집행 (retry, timeout, cost) | 🔲 |

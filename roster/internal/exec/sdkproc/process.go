@@ -24,13 +24,13 @@ type Process interface {
 }
 
 // NewPythonProcess creates a Python SDK process.
-func NewPythonProcess(port int, pythonBin string) Process {
-	return &pythonProcess{port: port, pythonBin: pythonBin}
+func NewPythonProcess(port int, pythonBin, workDir string) Process {
+	return &pythonProcess{port: port, pythonBin: pythonBin, workDir: workDir}
 }
 
 // NewNodeProcess creates a Node.js SDK process.
-func NewNodeProcess(port int, nodeBin string) Process {
-	return &nodeProcess{port: port, nodeBin: nodeBin}
+func NewNodeProcess(port int, nodeBin, workDir string) Process {
+	return &nodeProcess{port: port, nodeBin: nodeBin, workDir: workDir}
 }
 
 // --- Python ---
@@ -38,6 +38,7 @@ func NewNodeProcess(port int, nodeBin string) Process {
 type pythonProcess struct {
 	port      int
 	pythonBin string
+	workDir   string
 	cmd       *exec.Cmd
 }
 
@@ -51,6 +52,9 @@ func (p *pythonProcess) Start(ctx context.Context) error {
 	)
 	p.cmd.Stdout = os.Stdout
 	p.cmd.Stderr = os.Stderr
+	if p.workDir != "" {
+		p.cmd.Dir = p.workDir
+	}
 	// Prevent gRPC fork handler crash when agents spawn subprocesses.
 	p.cmd.Env = append(os.Environ(), "GRPC_ENABLE_FORK_SUPPORT=0")
 	if err := p.cmd.Start(); err != nil {
@@ -71,6 +75,7 @@ func (p *pythonProcess) Stop() error {
 type nodeProcess struct {
 	port    int
 	nodeBin string
+	workDir string
 	cmd     *exec.Cmd
 }
 
@@ -84,6 +89,11 @@ func (n *nodeProcess) Start(ctx context.Context) error {
 	))
 	n.cmd.Stdout = os.Stdout
 	n.cmd.Stderr = os.Stderr
+	if n.workDir != "" {
+		n.cmd.Dir = n.workDir
+	}
+	// Prevent gRPC fork handler crash when agents spawn subprocesses.
+	n.cmd.Env = append(os.Environ(), "GRPC_ENABLE_FORK_SUPPORT=0")
 	if err := n.cmd.Start(); err != nil {
 		return fmt.Errorf("node sdk start: %w", err)
 	}
@@ -131,10 +141,23 @@ type entry struct {
 }
 
 // NewProcessManager creates a ProcessManager using the given base port.
+// If basePort is 0, a free port is selected automatically on first use.
 func NewProcessManager(basePort int) *ProcessManager {
 	return &ProcessManager{basePort: basePort}
 }
 
+// freePort asks the OS for an available TCP port.
+func freePort() (int, error) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return 0, fmt.Errorf("sdk: find free port: %w", err)
+	}
+	port := l.Addr().(*net.TCPAddr).Port
+	l.Close()
+	return port, nil
+}
+
+func (m *ProcessManager) SetBasePort(port int)     { m.basePort = port }
 func (m *ProcessManager) SetPythonBin(bin string)  { m.pythonBin = bin }
 func (m *ProcessManager) SetNodeBin(bin string)    { m.nodeBin = bin }
 func (m *ProcessManager) SetProjectDir(dir string) { m.projectDir = dir }
@@ -233,12 +256,22 @@ func (m *ProcessManager) GetOrStart(ctx context.Context) (proto.AgentServiceClie
 		}
 	}
 
+	port := m.basePort
+	if port == 0 {
+		var err error
+		port, err = freePort()
+		if err != nil {
+			return nil, err
+		}
+		m.basePort = port // cache for reconnects
+	}
+
 	var proc Process
 	switch {
 	case m.pythonBin != "":
-		proc = NewPythonProcess(m.basePort, m.pythonBin)
+		proc = NewPythonProcess(port, m.pythonBin, m.projectDir)
 	case m.nodeBin != "":
-		proc = NewNodeProcess(m.basePort, m.nodeBin)
+		proc = NewNodeProcess(port, m.nodeBin, m.projectDir)
 	default:
 		return nil, fmt.Errorf("sdk: no runtime configured (set sdk: in agent/resource config)")
 	}

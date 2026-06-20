@@ -128,6 +128,13 @@ func (p *Project) loadFile(path string) error {
 			desk.ID = fileID(path, types.KindDesk)
 		}
 		desk.SourcePath = filepath.Dir(path)
+		// Backward compat: convert old `parent` field to `groups`.
+		var raw map[string]interface{}
+		if err := yaml.Unmarshal(data, &raw); err == nil {
+			if parent, ok := raw["parent"].(string); ok && parent != "" && len(desk.Groups) == 0 {
+				desk.Groups = []string{parent}
+			}
+		}
 		p.Desks[desk.ID] = &desk
 
 	case types.KindGroup:

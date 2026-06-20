@@ -36,14 +36,14 @@
 .ev-row:hover { background: var(--bg3); }
 .ev-time { color: var(--text3); font-size: 9px; flex-shrink: 0; }
 .ev-type { font-weight: 600; white-space: nowrap; }
-.ev-step { color: var(--amber); font-size: 9px; overflow: hidden; text-overflow: ellipsis; }
+.ev-desk { color: var(--amber); font-size: 9px; overflow: hidden; text-overflow: ellipsis; }
 .ev-run .ev-type { color: var(--cyan); }
 .ev-ok .ev-type { color: var(--green); }
 .ev-err .ev-type { color: var(--red); }
 .ev-err { background: var(--red-light); }
 .ev-other .ev-type { color: var(--text2); }
 .ev-log .ev-type { color: #ffcc33; }
-.ev-log .ev-step { color: var(--text2); }
+.ev-log .ev-desk { color: var(--text2); }
 .ev-human .ev-type { color: var(--indigo); }
 .ev-human { background: rgba(123,127,240,0.04); }
 .ev-human-icon {

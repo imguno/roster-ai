@@ -59,6 +59,21 @@ func createSchema(db *sql.DB) error {
 		}
 	}
 
+	// Knowhow — accumulated learning entries.
+	for _, s := range []string{
+		`CREATE TABLE IF NOT EXISTS knowhow (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			desk_id TEXT NOT NULL,
+			content TEXT NOT NULL,
+			at DATETIME NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_knowhow_desk ON knowhow(desk_id)`,
+	} {
+		if _, err := db.Exec(s); err != nil {
+			return fmt.Errorf("sqlite schema (knowhow): %w", err)
+		}
+	}
+
 	// Migrate legacy tables if they exist.
 	migrateLegacy(db)
 

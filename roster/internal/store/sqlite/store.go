@@ -243,3 +243,44 @@ func (s *Store) MetricsByRun(runID string) ([]store.MetricRow, error) {
 	}
 	return out, rows.Err()
 }
+
+// --- KnowhowStore ---
+
+func (s *Store) SaveKnowhow(deskID, content string) error {
+	_, err := s.db.Exec(`INSERT INTO knowhow (desk_id, content, at) VALUES (?, ?, datetime('now'))`, deskID, content)
+	return err
+}
+
+func (s *Store) LoadKnowhow(deskID string, limit int) []store.KnowhowEntry {
+	var q string
+	var args []interface{}
+	if limit > 0 {
+		q = `SELECT desk_id, content, at FROM (SELECT * FROM knowhow WHERE desk_id = ? ORDER BY id DESC LIMIT ?) ORDER BY id ASC`
+		args = []interface{}{deskID, limit}
+	} else {
+		q = `SELECT desk_id, content, at FROM knowhow WHERE desk_id = ? ORDER BY id ASC`
+		args = []interface{}{deskID}
+	}
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []store.KnowhowEntry
+	for rows.Next() {
+		var e store.KnowhowEntry
+		if err := rows.Scan(&e.DeskID, &e.Content, &e.At); err != nil {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
+func (s *Store) PruneKnowhow(deskID string, keepLatest int) error {
+	_, err := s.db.Exec(
+		`DELETE FROM knowhow WHERE desk_id = ? AND id NOT IN (SELECT id FROM knowhow WHERE desk_id = ? ORDER BY id DESC LIMIT ?)`,
+		deskID, deskID, keepLatest,
+	)
+	return err
+}

@@ -15,6 +15,7 @@ type Store struct {
 	logs     map[string][]store.LogEntry
 	notes    map[string]map[string][]byte
 	metrics  []metricEntry
+	knowhow  map[string][]store.KnowhowEntry
 }
 
 type metricEntry struct {
@@ -27,6 +28,7 @@ func New() *Store {
 		sessions: make(map[string][]store.SessionEntry),
 		logs:     make(map[string][]store.LogEntry),
 		notes:    make(map[string]map[string][]byte),
+		knowhow:  make(map[string][]store.KnowhowEntry),
 	}
 }
 
@@ -203,4 +205,37 @@ func indexOf(s, sub string) int {
 		}
 	}
 	return -1
+}
+
+// --- KnowhowStore ---
+
+func (s *Store) SaveKnowhow(deskID, content string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.knowhow[deskID] = append(s.knowhow[deskID], store.KnowhowEntry{
+		DeskID:  deskID,
+		Content: content,
+		At:      time.Now(),
+	})
+	return nil
+}
+
+func (s *Store) LoadKnowhow(deskID string, limit int) []store.KnowhowEntry {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	entries := s.knowhow[deskID]
+	if limit > 0 && len(entries) > limit {
+		return entries[len(entries)-limit:]
+	}
+	return entries
+}
+
+func (s *Store) PruneKnowhow(deskID string, keepLatest int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entries := s.knowhow[deskID]
+	if keepLatest > 0 && len(entries) > keepLatest {
+		s.knowhow[deskID] = entries[len(entries)-keepLatest:]
+	}
+	return nil
 }

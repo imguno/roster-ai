@@ -184,10 +184,13 @@ See the [YAML reference](yaml-schema.md) for all configuration options.
 
 ## Templates
 
-`roster init` includes three additional templates for common use cases:
+`roster init` includes templates for common use cases:
 
 ```bash
+roster init my-org                             # minimal (default) — single desk
 roster init my-org --template product-team     # architect + dev + review + ops
 roster init my-org --template content-pipeline # researcher + writer + editor
 roster init my-org --template code-review      # security + quality reviewers (parallel)
 ```
+
+You can also pass `--template minimal` explicitly — it produces the same result as running `roster init` with no template.

@@ -184,10 +184,13 @@ emit:
 
 ## 템플릿
 
-`roster init`에는 일반적인 사용 사례를 위한 세 가지 추가 템플릿이 포함되어 있습니다:
+`roster init`에는 일반적인 사용 사례를 위한 템플릿이 포함되어 있습니다:
 
 ```bash
+roster init my-org                             # minimal (기본) — 단일 desk
 roster init my-org --template product-team     # architect + dev + review + ops
 roster init my-org --template content-pipeline # researcher + writer + editor
 roster init my-org --template code-review      # security + quality reviewers (parallel)
 ```
+
+`--template minimal`을 명시적으로 전달할 수도 있습니다. 템플릿 없이 `roster init`을 실행한 것과 동일한 결과를 생성합니다.

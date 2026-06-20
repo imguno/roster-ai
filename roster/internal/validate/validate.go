@@ -43,10 +43,9 @@ func checkDesk(d *types.Desk, p *config.Project) []string {
 	if d.Executor.Type == types.ExecutorTypeAPI && d.Executor.SDK == "" {
 		errs = append(errs, fmt.Sprintf("desk %q: executor.sdk is required when type is api", d.ID))
 	}
-	if d.Parent != "" {
-		_, isGroup := p.Groups[d.Parent]
-		if !isGroup && (p.Organization == nil || p.Organization.ID != d.Parent) {
-			errs = append(errs, fmt.Sprintf("desk %q: parent %q not found (must be a group or org id)", d.ID, d.Parent))
+	for _, gid := range d.Groups {
+		if _, ok := p.Groups[gid]; !ok {
+			errs = append(errs, fmt.Sprintf("desk %q: group %q not found", d.ID, gid))
 		}
 	}
 	if d.Executor.Type == types.ExecutorTypeAPI && d.Executor.SDK != "" {

@@ -144,7 +144,7 @@ func (s *Server) handleDeskProfile(w http.ResponseWriter, r *http.Request, deskI
 	runTokens := map[string][2]int{}
 
 	for _, ev := range events {
-		if ev.StepID != deskID {
+		if ev.DeskID != deskID {
 			continue
 		}
 		if !cutoff.IsZero() && ev.At.Before(cutoff) {
@@ -167,7 +167,7 @@ func (s *Server) handleDeskProfile(w http.ResponseWriter, r *http.Request, deskI
 			completedDurations = append(completedDurations, completionRecord{at: ev.At, ms: ev.DurationMs})
 			key := ev.RunID
 			if key == "" {
-				key = ev.StepID + "|" + ev.At.Format(time.RFC3339Nano)
+				key = ev.DeskID + "|" + ev.At.Format(time.RFC3339Nano)
 			}
 			cur := runTokens[key]
 			cur[0] += ev.InputTokens

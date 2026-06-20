@@ -1,0 +1,9 @@
+kind: organization
+name: my-org
+
+groups:
+  - dev-team
+
+routing:
+  - on: task.created
+    to: dev-team

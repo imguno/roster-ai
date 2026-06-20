@@ -14,6 +14,7 @@ type Org struct {
 	Emit        []string    `yaml:"emit,omitempty" json:"emit,omitempty"`
 	Cron        []CronEntry `yaml:"cron,omitempty" json:"cron,omitempty"`
 	Limits      LoopLimits  `yaml:"limits,omitempty" json:"limits,omitempty"`
+	Budget      BudgetConfig `yaml:"budget,omitempty" json:"budget,omitempty"`
 }
 
 // CronEntry schedules periodic event emission.

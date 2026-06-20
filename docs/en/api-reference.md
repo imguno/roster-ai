@@ -46,17 +46,20 @@ GET /api/runs
 ```json
 [
   {
-    "ID": "a1b2c3d4-...",
-    "PipelineID": "product-launch",
-    "Status": "done",
-    "StartedAt": "2026-06-07T10:00:00Z",
-    "FinishedAt": "2026-06-07T10:05:30Z",
-    "Error": ""
+    "run_id": "a1b2c3d4-...",
+    "group_id": "product-launch",
+    "desks": ["writer-desk", "reviewer-desk"],
+    "status": "completed",
+    "started_at": "2026-06-07T10:00:00Z",
+    "total_step_ms": 5300,
+    "input_tokens": 1200,
+    "output_tokens": 800,
+    "trigger_type": "product.draft.ready"
   }
 ]
 ```
 
-**Status values:** `pending` | `running` | `done` | `failed` | `waiting`
+**Status values:** `running` | `completed` | `failed` | `skipped`
 
 ---
 
@@ -73,9 +76,9 @@ GET /api/events?pipeline={pipelineID}
 ```json
 [
   {
-    "PipelineID": "product-launch",
-    "StepID": "writer-desk",
-    "Type": "step.completed",
+    "RunID": "a1b2c3d4-...",
+    "DeskID": "writer-desk",
+    "Type": "desk.completed",
     "At": "2026-06-07T10:01:00Z",
     "DurationMs": 3200,
     "Model": "claude-opus-4-8",
@@ -90,66 +93,33 @@ GET /api/events?pipeline={pipelineID}
 
 | type | description |
 |------|-------------|
-| `step.started` | a step has begun executing |
-| `step.completed` | a step completed successfully |
-| `step.failed` | a step failed |
-| `gate.waiting` | waiting for approval |
-| `gate.approved` | approved |
+| `desk.started` | a desk has begun executing |
+| `desk.completed` | a desk completed successfully |
+| `desk.failed` | a desk failed |
+| `desk.timed_out` | a desk timed out |
+| `desk.log` | a desk emitted a log message |
 | `human.waiting` | waiting for human input |
 | `human.received` | human input received |
+| `queue.pushed` | event queued for a desk |
+| `event.published` | event published to bus |
+| `emit.rejected` | emission not in desk's allow-list |
 
 ---
 
-## Gates (Approval Gates)
+## Human Input
 
-### List Pending Gates
-
-```
-GET /api/gates
-```
-
-**Response:**
-```json
-[
-  {
-    "RunID": "a1b2c3d4-...",
-    "StepID": "prd-review",
-    "At": "2026-06-07T10:02:00Z"
-  }
-]
-```
-
----
-
-### Approve / Reject a Gate
-
-```
-POST /api/gates/{runID}/{stepID}/approve
-POST /api/gates/{runID}/{stepID}/reject
-```
-
-- `approve` → proceed to the next step
-- `reject` → roll back to the previous work step and re-execute
-
-**Response:** `204 No Content`
-
----
-
-## Human Input (Human-in-the-Loop Steps)
-
-Receives human input for pipeline steps that have an `executor: type: human` desk.
+Submit input for desks waiting for human input (`human.waiting` event).
 
 ### Submit Input
 
 ```
-POST /api/human/{runID}/{stepID}
+POST /api/human/{deskID}
 Content-Type: application/json
 
-{"content": "Enter your content here directly"}
+{"content": "Your input here"}
 ```
 
-- The submitted `content` becomes the output artifact for that step
-- The next step receives this artifact as its input
+**Response:** `204 No Content`
 
 **Response:** `204 No Content`
 

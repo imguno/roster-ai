@@ -65,8 +65,8 @@ func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {
 			if ev.At.Before(entry.StartedAt) {
 				entry.StartedAt = ev.At
 			}
-			if ev.StepID != "" {
-				deskSets[rid][ev.StepID] = struct{}{}
+			if ev.DeskID != "" {
+				deskSets[rid][ev.DeskID] = struct{}{}
 			}
 		case observe.EventStepCompleted:
 			if entry, ok := runs[rid]; ok && entry.Status != "failed" {
@@ -195,16 +195,16 @@ func (s *Server) handleRunDetail(w http.ResponseWriter, r *http.Request, runID s
 			continue
 		}
 		runKnown = true
-		if ev.StepID == "" {
+		if ev.DeskID == "" {
 			continue
 		}
 		switch ev.Type {
 		case observe.EventStepStarted:
-			if _, ok := details[ev.StepID]; !ok {
-				details[ev.StepID] = &stepDetail{DeskID: ev.StepID, Status: "running", StartedAt: ev.At}
+			if _, ok := details[ev.DeskID]; !ok {
+				details[ev.DeskID] = &stepDetail{DeskID: ev.DeskID, Status: "running", StartedAt: ev.At}
 			}
 		case observe.EventStepCompleted:
-			if d, ok := details[ev.StepID]; ok {
+			if d, ok := details[ev.DeskID]; ok {
 				d.Status = "completed"
 				d.DurationMs = ev.DurationMs
 				d.InputTokens = ev.InputTokens
@@ -213,7 +213,7 @@ func (s *Server) handleRunDetail(w http.ResponseWriter, r *http.Request, runID s
 				d.Output = ev.Output
 			}
 		case observe.EventStepFailed:
-			if d, ok := details[ev.StepID]; ok {
+			if d, ok := details[ev.DeskID]; ok {
 				d.Status = "failed"
 				d.Error = ev.Error
 				d.DurationMs = ev.DurationMs

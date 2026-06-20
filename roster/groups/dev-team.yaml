@@ -1,0 +1,11 @@
+kind: group
+name: dev-team
+
+desks:
+  - developer
+
+subscribe:
+  - task.created
+
+emit:
+  - task.completed

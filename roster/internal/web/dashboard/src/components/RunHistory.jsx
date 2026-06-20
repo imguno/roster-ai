@@ -16,12 +16,21 @@ export default function RunHistory() {
   }, [])
 
   // Poll step details every 3s while viewing an in-progress run.
+  // Also refresh run metadata so status/dot updates in real time.
   useEffect(() => {
     if (!selectedRun || selectedRun.status === 'completed' || selectedRun.status === 'failed') return
     const t = setInterval(async () => {
       try {
-        const s = await api.fetchRunDetail(selectedRun.run_id)
+        const [s, allRuns] = await Promise.all([
+          api.fetchRunDetail(selectedRun.run_id),
+          api.fetchRuns()
+        ])
         setSteps(Array.isArray(s) ? s : [])
+        if (Array.isArray(allRuns)) {
+          setRuns(allRuns)
+          const updated = allRuns.find(r => r.run_id === selectedRun.run_id)
+          if (updated) setSelectedRun(updated)
+        }
       } catch {}
     }, 3000)
     return () => clearInterval(t)
@@ -40,11 +49,24 @@ export default function RunHistory() {
   }
 
   const fmtMs = ms => { const s = Math.floor(ms / 1000); return s < 60 ? s + 's' : Math.floor(s / 60) + 'm ' + (s % 60) + 's' }
-  const fmtTime = t => { const d = new Date(t); return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) }
+  const fmtTime = t => t ? new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—'
 
+
+  const [cancelling, setCancelling] = useState(false)
+
+  const handleCancel = async () => {
+    if (!selectedRun || cancelling) return
+    setCancelling(true)
+    try {
+      await api.cancelRun(selectedRun.run_id)
+      setSelectedRun({ ...selectedRun, status: 'failed' })
+    } catch {}
+    setCancelling(false)
+  }
 
   if (selectedRun) {
     const dot = selectedRun.status === 'completed' ? 'var(--green)' : selectedRun.status === 'failed' ? 'var(--red)' : 'var(--cyan)'
+    const isInProgress = selectedRun.status !== 'completed' && selectedRun.status !== 'failed'
     return (
       <div style={{ padding: 20, overflow: 'auto', height: '100%' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
@@ -53,6 +75,12 @@ export default function RunHistory() {
           </button>
           <span style={{ width: 8, height: 8, borderRadius: '50%', background: dot, flexShrink: 0 }} />
           <code style={{ fontSize: 11, color: 'var(--text2)' }}>{selectedRun.run_id}</code>
+          {isInProgress && (
+            <button onClick={handleCancel} disabled={cancelling}
+              style={{ background: 'rgba(255,68,102,0.08)', border: '1px solid rgba(255,68,102,0.3)', color: 'var(--red)', padding: '3px 10px', borderRadius: 4, cursor: cancelling ? 'default' : 'pointer', fontSize: 11, fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, opacity: cancelling ? 0.5 : 1 }}>
+              {cancelling ? 'Cancelling…' : 'Cancel Run'}
+            </button>
+          )}
           <span style={{ fontSize: 10, color: 'var(--text3)', marginLeft: 'auto' }}>
             {selectedRun.total_step_ms ? fmtMs(selectedRun.total_step_ms) : '—'}
             {(selectedRun.input_tokens || selectedRun.output_tokens) ? ` · ${selectedRun.input_tokens || 0}→${selectedRun.output_tokens || 0} tok` : ''}
@@ -64,7 +92,7 @@ export default function RunHistory() {
         {!loading && steps.map((step, i) => {
           const sc = step.status === 'completed' ? 'var(--green)' : step.status === 'failed' ? 'var(--red)' : 'var(--cyan)'
           return (
-            <div key={i} style={{ borderLeft: `2px solid ${sc}`, padding: '8px 12px', marginBottom: 6, borderRadius: 3, background: 'var(--surface)' }}>
+            <div key={`${step.desk_id || ''}-${step.started_at || ''}-${i}`} style={{ borderLeft: `2px solid ${sc}`, padding: '8px 12px', marginBottom: 6, borderRadius: 3, background: 'var(--surface)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <span style={{ width: 7, height: 7, borderRadius: '50%', background: sc, flexShrink: 0 }} />
                 <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text1)' }}>{step.desk_id}</span>
@@ -99,7 +127,7 @@ export default function RunHistory() {
         const dot = r.status === 'completed' ? 'var(--green)' : r.status === 'failed' ? 'var(--red)' : 'var(--cyan)'
         const tokens = (r.input_tokens || r.output_tokens) ? `${r.input_tokens || 0}→${r.output_tokens || 0} tok` : ''
         return (
-          <div key={i}
+          <div key={r.run_id || `${r.group_id}-${r.started_at}-${i}`}
             style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '5px 8px', fontSize: 11, borderLeft: `2px solid ${dot}`, borderRadius: 3, marginBottom: 2, cursor: 'pointer' }}
             onClick={() => openRun(r)}
             onMouseOver={e => e.currentTarget.style.background = 'var(--surface)'}
@@ -107,6 +135,7 @@ export default function RunHistory() {
           >
             <span style={{ width: 8, height: 8, borderRadius: '50%', background: dot, flexShrink: 0 }} />
             <span style={{ color: 'var(--text2)', flexShrink: 0 }}>{r.group_id}</span>
+            <span style={{ fontSize: 9, color: 'var(--text3)', flexShrink: 0 }}>{fmtTime(r.started_at)}</span>
             <code style={{ fontSize: 10, color: 'var(--text3)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.run_id}>
               {r.run_id.length > 28 ? r.run_id.slice(-28) : r.run_id}
             </code>

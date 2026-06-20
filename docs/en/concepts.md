@@ -214,10 +214,11 @@ That's the whole model.
 | Desk (api, exec, docker, human, remote) | ✅ |
 | Agent + Skill | ✅ |
 | Group with coordinator pattern (both/first/last) | ✅ |
-| Resource (type definition + watch placeholder) | ✅ |
+| Resource (type definition + local file watcher) | ✅ |
 | Organization (event routing between groups/desks) | ✅ |
 | Session (desk + group) | ✅ |
 | Policy (type definition) | ✅ |
 | Actor model event bus | ✅ |
-| Resource watchers (real polling/webhook) | 🔲 |
+| Resource watchers (local recursive + glob filtering) | ✅ |
+| Resource watchers (remote polling/webhook) | 🔲 |
 | Policy enforcement (retry, timeout, cost) | 🔲 |

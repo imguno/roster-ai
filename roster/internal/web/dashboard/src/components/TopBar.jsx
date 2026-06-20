@@ -66,7 +66,7 @@ function NewTaskModal({ desks, groups, onClose }) {
             placeholder="Describe the task…"
             value={desc} onChange={e => setDesc(e.target.value)}
             rows={3}
-            onKeyDown={e => { if (e.key === 'Enter' && e.metaKey) handleSubmit() }}
+            onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleSubmit() }}
           />
           <div className="ntm-target-row">
             <label className="ntm-label">Target</label>
@@ -90,7 +90,7 @@ function NewTaskModal({ desks, groups, onClose }) {
           </div>
           {error && <div className="ntm-error">{error}</div>}
           <button className={`ntm-submit ${sent ? 'ntm-sent' : ''}`} onClick={handleSubmit} disabled={!desc.trim() || sending || (target !== 'org' && !targetId)}>
-            {sent ? '✓ Sent' : sending ? 'Sending…' : '→ Create Task'}
+            {sent ? '✓ Sent' : sending ? 'Sending…' : '→ Create Task'}{!sent && !sending && <span style={{ opacity: 0.5, fontSize: 10, marginLeft: 6 }}>⌘↵</span>}
           </button>
         </div>
       </div>
@@ -98,16 +98,26 @@ function NewTaskModal({ desks, groups, onClose }) {
   )
 }
 
-export default function TopBar({ org, desks, groups, events, view, setView, totalCost }) {
+export default function TopBar({ org, desks, groups, events, view, setView, totalCost, warnings }) {
   const [showNewTask, setShowNewTask] = useState(false)
+  const [showWarnings, setShowWarnings] = useState(false)
+  const warnRef = useRef(null)
   const active = Object.values(desks).length
   const groupCount = Object.keys(groups).length
   const evCount = events.length
+  const warnCount = warnings?.length || 0
+
+  useEffect(() => {
+    if (!showWarnings) return
+    const handler = (e) => { if (warnRef.current && !warnRef.current.contains(e.target)) setShowWarnings(false) }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [showWarnings])
 
   return (
     <div className="topbar">
       <div className="logo"><span className="dot" /> Roster</div>
-      <span className="org-name">{org?.name || 'Loading…'}</span>
+      <span className="org-name">{org?.name || (org ? '—' : 'Loading…')}</span>
       <div className="nav-tabs">
         {tabs.map(t => (
           <button key={t.id}
@@ -117,10 +127,28 @@ export default function TopBar({ org, desks, groups, events, view, setView, tota
         ))}
       </div>
       <div className="spacer" />
+      {warnCount > 0 && (
+        <div style={{ position: 'relative' }}>
+          <button className="warn-btn" onClick={() => setShowWarnings(v => !v)}>
+            ⚠ {warnCount}
+          </button>
+          {showWarnings && (
+            <div ref={warnRef} className="warn-dropdown">
+              <div className="warn-header">Warnings</div>
+              {warnings.map((w, i) => (
+                <div key={`${w.type || ''}-${w.id || ''}-${i}`} className="warn-item">
+                  <span className="warn-type">{w.type || 'warning'}</span>
+                  <span className="warn-msg">{w.message || w.msg || JSON.stringify(w)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
       <button className="new-task-btn" onClick={() => setShowNewTask(true)}>+ New Task</button>
       <div className="stat">Desks <span className="val">{active}</span></div>
       <div className="stat">Groups <span className="val">{groupCount}</span></div>
-      <div className="stat">Events <span className="val">{evCount > 99 ? '99+' : evCount}</span></div>
+      <div className="stat">Events <span className="val">{evCount.toLocaleString()}</span></div>
       {totalCost > 0 && <div className="stat">Cost <span className="val">${totalCost.toFixed(4)}</span></div>}
       {showNewTask && <NewTaskModal desks={desks} groups={groups} onClose={() => setShowNewTask(false)} />}
     </div>

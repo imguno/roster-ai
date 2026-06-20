@@ -8,14 +8,35 @@ import * as api from '../api'
 import 'reactflow/dist/style.css'
 import './GraphView.css'
 
+// ── Helpers ──
+const safeFmtTime = t => t ? new Date(t).toLocaleTimeString() : '—'
+
+function ChatMessageText({ content }) {
+  const [expanded, setExpanded] = useState(false)
+  const display = expanded ? content : content.slice(0, 400) + '…'
+  return (
+    <div className="chat-text">
+      {display}
+      <span className="chat-expand" onClick={() => setExpanded(!expanded)}>
+        {expanded ? ' ▲ collapse' : ' ▼ expand'}
+      </span>
+    </div>
+  )
+}
+
 // ── Speech bubble — scrolls through output text ──
 function SpeechBubble({ text }) {
   const [offset, setOffset] = useState(0)
+  const prevTextRef = useRef(text)
   const len = 50
 
   useEffect(() => {
     if (!text || text.length <= len) return
-    setOffset(0)
+    // Only reset offset when text actually changes value
+    if (prevTextRef.current !== text) {
+      prevTextRef.current = text
+      setOffset(0)
+    }
     const t = setInterval(() => {
       setOffset(prev => {
         const next = prev + len
@@ -91,7 +112,7 @@ function ResourceNode({ data }) {
   const { label, resType, actions } = data
   return (
     <div className="res-node">
-      <Handle type="target" position={Position.Top} className="node-handle" />
+      <Handle type="source" position={Position.Top} className="node-handle" />
       <div className="res-header">
         <span className="res-name">{label}</span>
         <span className="res-type">{resType}</span>
@@ -108,11 +129,13 @@ function ResourceNode({ data }) {
 const nodeTypes = { groupnode: GroupNode, desknode: DeskNode, resnode: ResourceNode, sysnode: SystemNode }
 
 // ── Status bar ──
-function StatusBar({ deskStates, events }) {
-  const working = Object.values(deskStates).filter(s => s.status === 'working').length
-  const errors = Object.values(deskStates).filter(s => s.status === 'error').length
-  const human = Object.values(deskStates).filter(s => s.status === 'human').length
-  const total = Object.keys(deskStates).length
+function StatusBar({ deskStates, desks, events }) {
+  const deskIds = new Set(Object.keys(desks || {}))
+  const deskOnly = Object.entries(deskStates).filter(([id]) => deskIds.has(id))
+  const working = deskOnly.filter(([, s]) => s.status === 'working').length
+  const errors = deskOnly.filter(([, s]) => s.status === 'error').length
+  const human = deskOnly.filter(([, s]) => s.status === 'human').length
+  const total = deskIds.size
   const lastEv = events.length ? events[events.length - 1] : null
   return (
     <div className="status-bar">
@@ -121,7 +144,7 @@ function StatusBar({ deskStates, events }) {
       {errors > 0 && <span className="sb-item sb-error">{errors} error</span>}
       {human > 0 && <span className="sb-item sb-human">{human} waiting</span>}
       <span className="sb-spacer" />
-      {lastEv && <span className="sb-last">{lastEv.type} · {lastEv.step_id || '—'}</span>}
+      {lastEv && <span className="sb-last">{lastEv.type} · {lastEv.desk_id || '—'}</span>}
     </div>
   )
 }
@@ -131,6 +154,7 @@ function NodePopover({ node, position, desks, groups, resources, deskStates, eve
   const [tab, setTab] = useState('info')
   const [profile, setProfile] = useState(null)
   const [session, setSession] = useState(null)
+  const [loading, setLoading] = useState(true)
   const [pos, setPos] = useState(position)
   const [dragging, setDragging] = useState(false)
   const dragRef = useRef({ startX: 0, startY: 0, origX: 0, origY: 0 })
@@ -139,16 +163,18 @@ function NodePopover({ node, position, desks, groups, resources, deskStates, eve
   const kind = node?.data?.nodeKind
   const id = node?.id
 
-  useEffect(() => { setPos(position) }, [position])
+  const hasDragged = useRef(false)
+  useEffect(() => { if (!hasDragged.current) setPos(position) }, [position])
 
   useEffect(() => {
-    setProfile(null); setSession(null); setTab('info')
-    if (!id || (kind !== 'desk' && kind !== 'group')) return
+    setProfile(null); setSession(null); setTab('info'); setLoading(true)
+    if (!id || (kind !== 'desk' && kind !== 'group')) { setLoading(false); return }
+    const promises = []
     if (kind === 'desk') {
-      api.fetchDeskProfile(id).then(setProfile).catch(() => {})
+      promises.push(api.fetchDeskProfile(id).then(setProfile).catch(() => {}))
     }
     // Merge session + logs
-    Promise.all([
+    promises.push(Promise.all([
       api.fetchDeskSession(id).catch(() => []),
       api.fetchDeskLogs(id).catch(() => []),
     ]).then(([sess, logs]) => {
@@ -157,7 +183,8 @@ function NodePopover({ node, position, desks, groups, resources, deskStates, eve
         ...(logs || []).map(e => ({ role: e.type, content: e.content, at: e.at, _kind: 'log' })),
       ].sort((a, b) => new Date(a.at) - new Date(b.at))
       setSession(timeline)
-    })
+    }))
+    Promise.all(promises).then(() => setLoading(false))
   }, [id, kind])
 
   // Poll session+logs every 3s while desk is working
@@ -191,9 +218,17 @@ function NodePopover({ node, position, desks, groups, resources, deskStates, eve
     return () => document.removeEventListener('mousedown', handler)
   }, [onClose])
 
+  // Close on Escape
+  useEffect(() => {
+    const handler = (e) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [onClose])
+
   // Drag logic
   const onDragStart = useCallback((e) => {
     if (e.target.closest('.pop-close') || e.target.closest('.pop-tab')) return
+    hasDragged.current = true
     setDragging(true)
     dragRef.current = { startX: e.clientX, startY: e.clientY, origX: pos.x, origY: pos.y }
   }, [pos])
@@ -223,20 +258,20 @@ function NodePopover({ node, position, desks, groups, resources, deskStates, eve
   else if (kind === 'system') { emitList = [id.startsWith('sys:') ? id.slice(4) : id] }
 
   // Find member desks for a group
-  const memberDesks = kind === 'group' ? Object.entries(desks).filter(([,d]) => d.parent === id).map(([did]) => did) : []
+  const memberDesks = kind === 'group' ? Object.entries(desks).filter(([,d]) => (d.groups || []).includes(id)).map(([did]) => did) : []
 
   // Find connected resources
   const connectedRes = kind === 'desk' ? (desk.resources || []) : kind === 'group' ? (group.resources || []) : []
 
   // Past runs for this scope
-  const scopeEvents = (events || []).filter(e => e.step_id === id)
+  const scopeEvents = (events || []).filter(e => e.desk_id === id)
   const runMap = {}
   for (const ev of scopeEvents) {
     if (!ev.run_id) continue
     if (!runMap[ev.run_id]) runMap[ev.run_id] = { run_id: ev.run_id, status: 'running', events: [] }
     runMap[ev.run_id].events.push(ev)
-    if (ev.type === 'step.completed') runMap[ev.run_id].status = 'completed'
-    if (ev.type === 'step.failed') { runMap[ev.run_id].status = 'failed'; runMap[ev.run_id].error = ev.error }
+    if (ev.type === 'desk.completed') runMap[ev.run_id].status = 'completed'
+    if (ev.type === 'desk.failed') { runMap[ev.run_id].status = 'failed'; runMap[ev.run_id].error = ev.error }
     if (ev.duration_ms) runMap[ev.run_id].duration = ev.duration_ms
     if (!runMap[ev.run_id].at || ev.at < runMap[ev.run_id].at) runMap[ev.run_id].at = ev.at
   }
@@ -271,7 +306,7 @@ function NodePopover({ node, position, desks, groups, resources, deskStates, eve
             <div className="pop-row"><span className="pop-label">Agent</span><span>{desk.agent?.id || '—'}</span></div>
             {desk.role && <div className="pop-row"><span className="pop-label">Role</span><span>{desk.role}</span></div>}
             {desk.goal && <div className="pop-row"><span className="pop-label">Goal</span><span>{desk.goal}</span></div>}
-            {desk.parent && <div className="pop-row"><span className="pop-label">Group</span><span>{desk.parent}</span></div>}
+            {desk.groups && desk.groups.length > 0 && <div className="pop-row"><span className="pop-label">Groups</span><span>{desk.groups.join(', ')}</span></div>}
             {desk.skills?.length > 0 && <div className="pop-row"><span className="pop-label">Skills</span><span>{desk.skills.join(', ')}</span></div>}
             {connectedRes.length > 0 && <div className="pop-row"><span className="pop-label">Resources</span><span>{connectedRes.join(', ')}</span></div>}
             {subList.length > 0 && <div className="pop-row"><span className="pop-label">Subscribe</span><span>{subList.join(', ')}</span></div>}
@@ -280,10 +315,11 @@ function NodePopover({ node, position, desks, groups, resources, deskStates, eve
             {state.runID && <div className="pop-row"><span className="pop-label">Run</span><code className="pop-code">{state.runID}</code></div>}
             {state.durationMs > 0 && <div className="pop-row"><span className="pop-label">Time</span><span>{fmtMs(state.durationMs)}</span></div>}
             {state.error && <div className="pop-row"><span className="pop-label">Error</span><span className="pop-error">{state.error}</span></div>}
+            {state.status === 'human' && <HumanInputForm deskID={id} deskStatus={state.status} />}
             {profile && (
               <>
                 <div className="pop-row"><span className="pop-label">Total Runs</span><span>{profile.total_runs}</span></div>
-                <div className="pop-row"><span className="pop-label">Success</span><span>{(profile.success_rate * 100).toFixed(0)}%</span></div>
+                <div className="pop-row"><span className="pop-label">Success</span><span>{((profile.success_rate ?? 0) * 100).toFixed(0)}%</span></div>
                 {profile.estimated_cost > 0 && <div className="pop-row"><span className="pop-label">Cost</span><span>${profile.estimated_cost.toFixed(4)}</span></div>}
               </>
             )}
@@ -314,16 +350,30 @@ function NodePopover({ node, position, desks, groups, resources, deskStates, eve
         {/* ── CHAT TAB ── */}
         {tab === 'chat' && (
           <div className="pop-chat">
-            {(!session || session.length === 0) && <div className="pop-empty">No messages yet</div>}
+            {loading && <div className="pop-empty">Loading…</div>}
+            {!loading && (!session || session.length === 0) && <div className="pop-empty">No messages yet</div>}
             {session && session.map((e, i) => {
               const k = e._kind || (e.role === 'user' ? 'in' : 'out')
               const cls = k === 'log' ? 'chat-msg-log' : k === 'in' ? 'chat-msg-in' : 'chat-msg-out'
               const sender = k === 'log' ? (e.role === 'step' ? 'progress' : 'result')
-                : k === 'in' ? 'Task' : deskName
+                : k === 'in' ? 'Trigger' : deskName
+              // For user messages with meta, show structured tags instead of raw text
+              const hasMeta = k === 'in' && e.meta && e.meta.trigger
+              const isTruncated = !hasMeta && e.content && e.content.length > 400
               return (
-                <div key={i} className={`chat-msg ${cls}`}>
-                  <div><span className="chat-sender">{sender}</span><span className="chat-time">{new Date(e.at).toLocaleTimeString()}</span></div>
-                  <div className="chat-text">{e.content.length > 400 ? e.content.slice(0, 400) + '...' : e.content}</div>
+                <div key={`${e.at || ''}-${i}`} className={`chat-msg ${cls}`}>
+                  <div><span className="chat-sender">{sender}</span><span className="chat-time">{safeFmtTime(e.at)}</span></div>
+                  {hasMeta ? (
+                    <div className="chat-meta">
+                      <span className="chat-tag chat-tag-trigger">{e.meta.trigger}</span>
+                      {e.meta.skills && e.meta.skills.map(s => <span key={s} className="chat-tag chat-tag-skill">{s}</span>)}
+                      {e.meta.resources && e.meta.resources.map(r => <span key={r} className="chat-tag chat-tag-resource">{r}</span>)}
+                    </div>
+                  ) : isTruncated ? (
+                    <ChatMessageText content={e.content} />
+                  ) : (
+                    <div className="chat-text">{e.content}</div>
+                  )}
                 </div>
               )
             })}
@@ -338,7 +388,7 @@ function NodePopover({ node, position, desks, groups, resources, deskStates, eve
             {pastRuns.map((r, i) => {
               const dot = r.status === 'completed' ? 'var(--green)' : r.status === 'failed' ? 'var(--red)' : 'var(--cyan)'
               return (
-                <div key={i} className="pop-run-row">
+                <div key={`${r.at || ''}-${r.status || ''}-${i}`} className="pop-run-row">
                   <span className="pop-run-dot" style={{ background: dot }} />
                   <span className="pop-run-time">{r.at ? new Date(r.at).toLocaleString() : '—'}</span>
                   <span className="pop-run-status">{r.status}</span>
@@ -359,6 +409,7 @@ function EmitActions({ emit, subscribe, sourceId }) {
   const [payload, setPayload] = useState('')
   const [firing, setFiring] = useState(null)
   const [done, setDone] = useState(null)
+  const [emitError, setEmitError] = useState(null)
 
   const allEvents = []
   const seen = new Set()
@@ -369,10 +420,11 @@ function EmitActions({ emit, subscribe, sourceId }) {
   const handleEmit = (ev) => {
     if (firing) return
     setFiring(ev)
+    setEmitError(null)
     api.emitEvent(ev, expanded === ev ? payload : undefined, sourceId).then(() => {
       setDone(ev)
       setTimeout(() => { setFiring(null); setDone(null) }, 1500)
-    }).catch(() => { setFiring(null) })
+    }).catch(err => { setFiring(null); setEmitError(err.message || 'Emit failed') })
   }
 
   return (
@@ -396,7 +448,55 @@ function EmitActions({ emit, subscribe, sourceId }) {
             )}
           </div>
         ))}
+        {emitError && <div style={{ fontSize: 10, color: 'var(--red)', marginTop: 4 }}>{emitError}</div>}
       </div>
+    </div>
+  )
+}
+
+// ── Human input form — appears when desk is waiting for human response ──
+function HumanInputForm({ deskID, deskStatus }) {
+  const [text, setText] = useState('')
+  const [sending, setSending] = useState(false)
+  const [sent, setSent] = useState(false)
+  const [error, setError] = useState(null)
+
+  // Reset sent state when desk re-enters human.waiting
+  useEffect(() => {
+    if (deskStatus === 'human') setSent(false)
+  }, [deskStatus])
+
+  const handleSubmit = () => {
+    if (!text.trim() || sending) return
+    setSending(true)
+    setError(null)
+    api.submitHuman(deskID, text.trim())
+      .then(() => { setSent(true); setText('') })
+      .catch(err => setError(err.message || 'Failed to submit'))
+      .finally(() => setSending(false))
+  }
+
+  return (
+    <div className="human-input-section">
+      <span className="pop-label">Human Input</span>
+      {sent ? (
+        <div className="human-input-sent">Response submitted</div>
+      ) : (
+        <>
+          <textarea
+            className="human-input-textarea"
+            placeholder="Type your response…"
+            value={text}
+            onChange={e => setText(e.target.value)}
+            rows={3}
+            onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleSubmit() }}
+          />
+          <button className="human-input-submit" onClick={handleSubmit} disabled={sending || !text.trim()}>
+            {sending ? 'Sending…' : 'Submit'}{!sending && <span style={{ opacity: 0.5, fontSize: 10, marginLeft: 6 }}>⌘↵</span>}
+          </button>
+          {error && <div style={{ fontSize: 10, color: 'var(--red)', marginTop: 4 }}>{error}</div>}
+        </>
+      )}
     </div>
   )
 }
@@ -408,6 +508,13 @@ function EdgePopover({ edgeLabel, events, position, onClose }) {
     const handler = (e) => { if (popRef.current && !popRef.current.contains(e.target)) onClose() }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
+  }, [onClose])
+
+  // Close on Escape
+  useEffect(() => {
+    const handler = (e) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
   }, [onClose])
 
   // Find events matching this edge label (event type pattern)
@@ -425,10 +532,10 @@ function EdgePopover({ edgeLabel, events, position, onClose }) {
       <div className="edge-pop-body">
         {matching.length === 0 && <div className="pop-empty">No recent events</div>}
         {matching.map((ev, i) => (
-          <div key={ev.at + ev.type + (ev.step_id || '') + i} className="edge-pop-row">
-            <span className="edge-pop-time">{new Date(ev.at).toLocaleTimeString()}</span>
+          <div key={ev.at + ev.type + (ev.desk_id || '') + i} className="edge-pop-row">
+            <span className="edge-pop-time">{safeFmtTime(ev.at)}</span>
             <span className="edge-pop-type">{ev.type}</span>
-            <span className="edge-pop-step">{ev.step_id || '—'}</span>
+            <span className="edge-pop-step">{ev.desk_id || '—'}</span>
           </div>
         ))}
       </div>
@@ -441,6 +548,8 @@ export default function GraphView({ org, desks, groups, resources, deskStates, q
   const [edgePopover, setEdgePopover] = useState(null)
   const [bubbles, setBubbles] = useState({})
   const draggedPositions = useRef({})
+  const [agoTick, setAgoTick] = useState(0)
+  useEffect(() => { const id = setInterval(() => setAgoTick(t => t + 1), 30000); return () => clearInterval(id) }, [])
 
   // Poll for bubble text — show last assistant response from session
   useEffect(() => {
@@ -474,9 +583,9 @@ export default function GraphView({ org, desks, groups, resources, deskStates, q
     const now = Date.now()
     for (let i = (events || []).length - 1; i >= 0; i--) {
       const ev = events[i]
-      if (ev.type === 'step.started' && ev.step_id) lrm[ev.step_id] = ev.at
-      if ((ev.type || '').match(/\.(failed|rejected)$/) && ev.step_id)
-        rcm[ev.step_id] = (rcm[ev.step_id] || 0) + 1
+      if (ev.type === 'desk.started' && ev.desk_id) lrm[ev.desk_id] = ev.at
+      if ((ev.type || '').match(/\.(failed|rejected)$/) && ev.desk_id)
+        rcm[ev.desk_id] = (rcm[ev.desk_id] || 0) + 1
       if (ev.at && (now - new Date(ev.at).getTime()) < 10000) recent.add(ev.type)
     }
     // Return previous refs if data hasn't changed to keep downstream memos stable
@@ -495,7 +604,7 @@ export default function GraphView({ org, desks, groups, resources, deskStates, q
   const initial = useMemo(() => {
     if (!org) return { nodes: [], edges: [] }
     return buildGraph(org, desks, groups, resources || {}, deskStates, queues, bubbles, lastRunMap, retryCountMap, recentEventTypes)
-  }, [org, desks, groups, resources, deskStates, queues, bubbles, lastRunMap, retryCountMap, recentEventTypes])
+  }, [org, desks, groups, resources, deskStates, queues, bubbles, lastRunMap, retryCountMap, recentEventTypes, agoTick])
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(initial.edges)
@@ -544,7 +653,7 @@ export default function GraphView({ org, desks, groups, resources, deskStates, q
 
   return (
     <div className="graph-wrapper">
-      <StatusBar deskStates={deskStates} events={events} />
+      <StatusBar deskStates={deskStates} desks={desks} events={events} />
       <div className="graph-container">
         <ReactFlow
           nodes={nodes} edges={edges}
@@ -557,7 +666,7 @@ export default function GraphView({ org, desks, groups, resources, deskStates, q
           minZoom={0.08} maxZoom={2.5}
           nodesDraggable nodesConnectable={false}
           defaultEdgeOptions={{ type: 'smoothstep' }}
-          onlyRenderVisibleElements={false}
+          onlyRenderVisibleElements
         >
           <Background color="#181c24" gap={28} size={1} />
           <Controls showInteractive={false} />
@@ -599,7 +708,7 @@ function buildGraph(org, desks, groups, resources, deskStates, queues, bubbles, 
 
   const deskToGroup = {}
   for (const [id, d] of Object.entries(desks)) {
-    if (d.parent && groups[d.parent]) deskToGroup[id] = d.parent
+    const dGroups = d.groups || []; if (dGroups.length > 0 && groups[dGroups[0]]) deskToGroup[id] = dGroups[0]
   }
 
   // System events
@@ -624,8 +733,8 @@ function buildGraph(org, desks, groups, resources, deskStates, queues, bubbles, 
     }
   }
   for (const [id, d] of Object.entries(desks)) {
-    if (d.parent && groups[d.parent]) {
-      (groupToDesks[d.parent] = groupToDesks[d.parent] || []).push(id)
+    const dGrps = d.groups || []; if (dGrps.length > 0 && groups[dGrps[0]]) {
+      (groupToDesks[dGrps[0]] = groupToDesks[dGrps[0]] || []).push(id)
     }
   }
 
@@ -755,7 +864,7 @@ function buildGraph(org, desks, groups, resources, deskStates, queues, bubbles, 
   // Determine what's a "child" (has a parent group or parent desk-group)
   const childOf = {} // id → parentId
   for (const [id, d] of Object.entries(desks)) {
-    if (d.parent && groups[d.parent]) childOf[id] = d.parent
+    const dcg = d.groups || []; if (dcg.length > 0 && groups[dcg[0]]) childOf[id] = dcg[0]
   }
   for (const [id, g] of Object.entries(groups)) {
     if (g.parent && groups[g.parent]) childOf[id] = g.parent

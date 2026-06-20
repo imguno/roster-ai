@@ -55,15 +55,15 @@ executor:
 
 ```json
 {
-  "schema": "text-v1",
-  "payload": "실행 결과 텍스트"
+  "content": "실행 결과 텍스트",
+  "metrics": {"tokens_used": 150}
 }
 ```
 
-- `schema`: 아티팩트 타입 식별자 (자유롭게 정의. 예: `"text-v1"`, `"code-v1"`, `"json-v1"`)
-- `payload`: 다음 단계에 전달될 아웃풋
+- `content`: 아웃풋 텍스트 (세션에 저장됨)
+- `metrics`: 선택적 key-value 메트릭
 
-**raw stdout fallback**: JSON이 아니면 전체 stdout을 `text-v1` payload로 처리합니다.
+**raw stdout fallback**: JSON이 아니면 전체 stdout을 content로 처리합니다.
 
 ### 예시: Python executor
 
@@ -164,18 +164,17 @@ import "github.com/roster-io/roster/pkg/sdk"
 
 type MyExecutor struct{}
 
-func (e *MyExecutor) Run(ctx context.Context, task sdk.Task) (*types.Artifact, error) {
+func (e *MyExecutor) Run(ctx context.Context, task sdk.Task) (*types.Output, error) {
     // task.Prompt        — 실행할 내용
     // task.Session       — 데스크의 이전 대화 기록
     // task.GroupHistory  — 팀 공유 공간의 메시지들
-    // task.Options       — 데스크 YAML의 params
+    // task.Resources     — 사용 가능한 리소스와 설정
+    // task.Skills        — 해석된 스킬 프롬프트
+    // task.Options       — 데스크 YAML의 executor 설정
     // task.Env           — 환경 변수
 
     result := callMyService(task.Prompt)
-    return &types.Artifact{
-        Schema:  "text-v1",
-        Payload: []byte(result),
-    }, nil
+    return &types.Output{Content: result}, nil
 }
 ```
 
@@ -195,58 +194,6 @@ executor:
     endpoint: "https://my-service.com/api"
 ```
 
-### 커스텀 Trigger
-
-```go
-import "github.com/roster-io/roster/pkg/sdk"
-
-type SlackTrigger struct {
-    channel string
-    token   string
-}
-
-func (t *SlackTrigger) Start(ctx context.Context) (<-chan sdk.TriggerEvent, error) {
-    ch := make(chan sdk.TriggerEvent, 4)
-    go func() {
-        defer close(ch)
-        for {
-            select {
-            case <-ctx.Done():
-                return
-            case msg := <-t.pollSlack(ctx):
-                ch <- sdk.TriggerEvent{
-                    PipelineID: "handle-slack-message",
-                    Payload:    map[string]string{"text": msg},
-                }
-            }
-        }
-    }()
-    return ch, nil
-}
-```
-
-### 커스텀 Channel Adapter
-
-```go
-import "github.com/roster-io/roster/pkg/sdk"
-
-type NotionAdapter struct {
-    pageID string
-}
-
-func (a *NotionAdapter) Send(ctx context.Context, artifact *types.Artifact) error {
-    return notion.UpdatePage(ctx, a.pageID, string(artifact.Payload))
-}
-
-func (a *NotionAdapter) Receive(ctx context.Context) (*types.Artifact, error) {
-    content, err := notion.GetPage(ctx, a.pageID)
-    if err != nil {
-        return nil, err
-    }
-    return &types.Artifact{Schema: "text-v1", Payload: []byte(content)}, nil
-}
-```
-
 ---
 
 ## SDK 인터페이스 레퍼런스
@@ -255,7 +202,7 @@ func (a *NotionAdapter) Receive(ctx context.Context) (*types.Artifact, error) {
 
 ```go
 type Executor interface {
-    Run(ctx context.Context, task Task) (*types.Artifact, error)
+    Run(ctx context.Context, task Task) (*types.Output, error)
 }
 ```
 
@@ -263,52 +210,33 @@ type Executor interface {
 
 ```go
 type Task struct {
-    AgentID      string
-    DeskID       string
-    Prompt       string            // 스킬 프롬프트 + 입력 컨텍스트
-    Input        *types.Artifact   // 이전 단계 아웃풋 (nil = 첫 단계)
-    Options      map[string]string // 데스크 YAML의 executor.params
-    Env          map[string]string // 환경 변수
-    Session      []SessionEntry    // 데스크 영구 세션 기록
+    RunID     string
+    AgentID   string
+    DeskID    string
+    GroupID   string            // 그룹에 속하지 않은 경우 빈 문자열
+    EventType string            // 이 데스크를 트리거한 이벤트 타입
+    Prompt    string            // 병합된 스킬 프롬프트 + 입력 컨텍스트
+    Options   map[string]string // 실행기 설정 (command, image, sdk 등)
+    Env       map[string]string // 환경 변수
+    WorkDir   string            // 실행 작업 디렉토리
+
+    Notes       map[string][]byte  // 현재 스코프의 노트 스냅샷
+    Session     []SessionEntry     // 데스크 영구 세션 기록
     GroupHistory []GroupMessage    // 팀 공유 소통 기록
+    Resources   []TaskResource     // 데스크에서 사용 가능한 리소스
+    Skills      map[string]string  // 스킬 이름 → 해석된 프롬프트 내용
 }
 ```
 
-### `sdk.Trigger`
+### `sdk.TaskResource`
 
 ```go
-type Trigger interface {
-    Start(ctx context.Context) (<-chan TriggerEvent, error)
-}
-
-type TriggerEvent struct {
-    PipelineID string
-    Payload    map[string]string
+type TaskResource struct {
+    ID     string            // 리소스 ID
+    Type   string            // 리소스 타입 (mcp, local, remote 등)
+    Config map[string]string // 리소스 설정 (path, connection 등)
 }
 ```
-
-### `sdk.Adapter`
-
-```go
-type Adapter interface {
-    Send(ctx context.Context, artifact *types.Artifact) error
-    Receive(ctx context.Context) (*types.Artifact, error)
-}
-```
-
----
-
-## 아티팩트 Schema 컨벤션
-
-커스텀 schema 이름은 자유롭게 정하되, 표준 이름을 권장합니다:
-
-| schema | payload 형식 |
-|--------|-------------|
-| `text-v1` | UTF-8 텍스트 |
-| `json-v1` | JSON 객체 |
-| `code-v1` | 소스 코드 (언어 무관) |
-| `markdown-v1` | Markdown 텍스트 |
-| `binary-v1` | 임의 바이너리 |
 
 ---
 

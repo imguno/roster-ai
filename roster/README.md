@@ -3,11 +3,22 @@
 This directory contains the Roster framework source code — an event-driven AI agent orchestrator written in Go.
 
 ```
-cmd/roster/        CLI entrypoint
+cmd/roster/        CLI entrypoint (one file per subcommand)
 pkg/types/         Domain models (pure types, no external deps)
 pkg/sdk/           Port interfaces (Executor, Task)
+domain/            Pure business logic (no external deps)
+  budget/          Cost evaluation and limit checking
+  desk/            Emission filtering, event naming
+  group/           Hierarchy walking, ancestor chains
+  session/         Context building, scope resolution
+  knowhow/         Knowledge extraction
+  resource/        Resource validation
 internal/
   hub/             Central orchestrator — routes events, manages queues
+    circuit_breaker  Loop detection and event suppression
+    executor       Desk execution pipeline
+    registry       Thread-safe config holder and lookups
+    budget         Multi-granularity cost tracking
   event/           Event bus, emitters, queue, and routing
   exec/            Executor implementations and desk runner
     runner/        Backends: api, docker, exec, remote
@@ -45,7 +56,7 @@ github.com/roster-io/roster
 ```bash
 roster help                  # Show usage
 roster init [dir]            # Create organization (--name, --template)
-roster hub [--dir .] [--ui :8080] [--store file|sqlite|memory]
+roster hub [--dir .] [--ui :8080] [--store file|sqlite|memory] [--sdk-port auto]
                              # Start hub server
 roster load <dir> [--hub URL]   # Load org into running hub
 roster emit <event> [payload]   # Emit event to hub
@@ -55,9 +66,10 @@ roster logs [--dir .]        # Query logs (--type, --follow, --output)
 roster summarize [--dir .]   # Compact session history (--desk, --all)
 roster status [--hub URL]    # Show hub status
 roster vacuum [--dir .]      # Clean up old data (--keep 7d)
+roster dry-run [--dir .]     # Validate config without starting
 ```
 
-Init templates: `product-team`, `content-pipeline`, `code-review`.
+Init templates: `minimal` (default), `product-team`, `content-pipeline`, `code-review`.
 
 ---
 
@@ -65,7 +77,7 @@ Init templates: `product-team`, `content-pipeline`, `code-review`.
 
 ### Organization (Org)
 
-The root container. Exactly one per project. Children (groups, desks) declare membership via their `parent` field.
+The root container. Exactly one per project. Desks declare membership via their `groups` field; groups can nest via `parent`.
 
 ```yaml
 kind: org
@@ -86,6 +98,10 @@ cron:
 limits:
   max_iterations: 10
   cooldown: "5m"
+budget:
+  max_per_run: 10.0     # max USD per execution
+  max_daily: 100.0      # max USD per 24h rolling window
+  max_monthly: 1000.0   # max USD per 30d rolling window
 ```
 
 The `limits` field configures the **loop circuit breaker**. When any single event type fires more than `max_iterations` times, the hub suppresses further emissions of that event and logs a `loop.breaker` observation. After `cooldown` elapses, the counter resets and the event type is unblocked. This prevents runaway self-improvement or retry cycles from consuming resources indefinitely.
@@ -98,7 +114,8 @@ The execution unit — one agent, one job, one set of events.
 kind: desk
 id: code-reviewer
 name: Code Reviewer
-parent: dev-team          # group membership
+groups:                    # group membership (array — can belong to multiple groups)
+  - dev-team
 agent: reviewer           # local agent ID or remote spec
 role: "Senior code reviewer"
 goal: "Review PRs for correctness and style"
@@ -114,14 +131,22 @@ executor:
   type: sdk               # api | exec | docker | remote | human | sdk
 session:
   max_entries: 50
+  max_knowhow: 10         # limit accumulated knowhow entries
+budget:
+  max_per_run: 5.0
+  max_daily: 50.0
 ```
 
 The `emit` field is an **allowlist**. When set, the hub filters the desk's emitted events — only events listed in `emit` are published. Rejected emissions are logged as `emit.rejected` observations. If all emissions are rejected, the desk falls back to emitting `done`. If `emit` is omitted, the desk can emit any event.
 
-The `timeout` field sets a maximum execution duration for the desk. If the desk exceeds this limit, the hub cancels it and emits a `{deskID}.timed_out` event (plus `{groupID}.{deskID}.timed_out` if the desk belongs to a group). The value is a Go duration string:
+**Event naming.** When a desk emits an event (e.g., `done`), the hub publishes multiple variants: `{deskID}.done` and `{groupID}.{deskID}.done` for each group the desk belongs to. This lets other desks subscribe to group-scoped events (e.g., `dev-team.code-reviewer.done`).
+
+**Knowhow.** Agents can include a `## Knowhow` section in their output. The hub extracts it and persists it. On subsequent runs, accumulated knowhow is injected back into the agent's prompt as a pseudo-skill. The `max_knowhow` field limits how many entries are retained.
+
+The `timeout` field sets a maximum execution duration for the desk. If the desk exceeds this limit, the hub cancels it and emits a `{deskID}.timed_out` event (plus `{groupID}.{deskID}.timed_out` if the desk belongs to a group). The default is `30m`. Human desks (`executor.type: human`) have no timeout by default. The value is a Go duration string:
 
 ```yaml
-timeout: "5m"    # cancel after 5 minutes
+timeout: "5m"    # cancel after 5 minutes (default: 30m)
 ```
 
 The `agent` field accepts a plain string (local agent ID) or an object for remote agents:
@@ -148,20 +173,18 @@ skills:
 
 ### Group
 
-A team container. Desks inside a group share a session scope and can see each other's messages via `GroupHistory`.
+A session-sharing scope. Desks declare membership via their `groups` field. A group can nest inside another group via `parent`, widening the session boundary. Groups do not subscribe to or emit events — only desks do.
 
 ```yaml
 kind: group
 id: dev-team
 name: Development Team
-parent: my-org
+parent: engineering       # optional: nest inside another group
 resources:
   - shared-codebase
-subscribe:
-  - sprint.started
-emit:
-  - sprint.done
 ```
+
+A desk can belong to multiple groups. The first group in the `groups` array is the primary group (used for default scope resolution).
 
 ### Resource
 
@@ -175,16 +198,16 @@ type: local
 connection: "http://localhost:8080"
 mcp: "npx @modelcontextprotocol/server"
 watch:
-  - file.changed            # events that trigger re-reads
+  - "**/*.go"               # only trigger on matching files
 config:
   path: ./src
 ```
 
-The `watch` field lists event types that indicate the resource has changed. Desks subscribed to those events can react to resource updates.
+The `watch` field lists glob patterns that filter which file changes trigger a `resource.{id}.changed` event. For `local` resources, the hub recursively watches the directory tree under `config.path` (skipping `.git`, `node_modules`, `__pycache__`, and other hidden directories). If `watch` is omitted, all file changes trigger events.
 
 Resource types: `local`, `mcp`, `remote`, and custom types via `config`.
 
-**Resource inheritance.** A desk inherits resources from its parent group, which inherits from *its* parent, all the way up to the organization. The hub walks the `parent` chain — desk → group → parent group → … → org — and merges all resources into the task. Desk-level resources are resolved first, then each ancestor group's resources, then org-level resources.
+**Resource inheritance.** A desk inherits resources from all of its groups, which each inherit from *their* parent, all the way up to the organization. The hub walks the ancestor chain — desk → groups → parent groups → … → org — and merges all resources into the task. Desk-level resources are resolved first, then each group's resources (deduplicated), then org-level resources.
 
 **Prompt injection.** The hub automatically appends a `[Resources]` section to the agent's prompt listing each resolved resource with its `description`, `path`, and `connection` fields. Agents see their available resources without any extra configuration. Relative `path` values are resolved to absolute paths using the project directory.
 
@@ -212,6 +235,19 @@ type Output struct {
     Metrics map[string]float64 `json:"metrics,omitempty"`
 }
 ```
+
+### Budget
+
+Spending limits at the desk or organization level. The hub tracks costs at three granularities and blocks execution when limits are exceeded.
+
+```yaml
+budget:
+  max_per_run: 5.0       # max USD per single execution
+  max_daily: 100.0       # max USD in a 24-hour rolling window
+  max_monthly: 1000.0    # max USD in a 30-day rolling window
+```
+
+Before each execution, the hub checks daily and monthly limits. After execution, it checks all three limits (per-run, daily, monthly). Violations are logged as observations, the desk output is rejected, and a `desk.budget_exceeded` event is published on the bus — other desks can subscribe to it to react to overspending.
 
 ---
 
@@ -355,7 +391,7 @@ The built-in web server exposes a React dashboard and a REST API on port 8080.
 | `GET /api/budget` | Budget/usage info |
 | `GET /api/warnings` | Configuration warnings |
 | `POST /api/human/{id}` | Submit human input for a desk |
-| `POST /api/load` | Reload configuration |
+| `POST /api/load` | Reload configuration (prunes removed desks/groups/resources) |
 | `GET /api/ping` | Health check |
 | `GET /api/version` | Server version |
 | `GET /health` | Health probe |
